@@ -1,0 +1,22 @@
+{
+  "name": "leadgen-scraper",
+  "version": "1.0.0",
+  "description": "Google Maps scraper + website analyzer voor het vinden van prospects met verouderde websites",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "puppeteer": "^23.6.0",
+    "cheerio": "^1.0.0",
+    "axios": "^1.7.7",
+    "better-sqlite3": "^11.3.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
