@@ -1,8 +1,26 @@
 // db.js - SQLite database voor leads
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'leads.db');
+// Probeer DB_PATH, val terug op lokale dir als /data niet werkt
+function resolveDbPath() {
+  const preferred = process.env.DB_PATH || '/data/leads.db';
+  const dir = path.dirname(preferred);
+
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.W_OK);
+    console.log(`✓ Database pad: ${preferred}`);
+    return preferred;
+  } catch (err) {
+    const fallback = path.join(__dirname, 'leads.db');
+    console.warn(`⚠ Kan niet schrijven naar ${dir} (${err.code}), gebruik fallback: ${fallback}`);
+    return fallback;
+  }
+}
+
+const dbPath = resolveDbPath();
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
@@ -29,10 +47,9 @@ db.exec(`
     rating REAL,
     review_count INTEGER,
     category TEXT,
-    -- Analyse velden
     analyzed INTEGER DEFAULT 0,
     replacement_score INTEGER,
-    issues TEXT,           -- JSON array
+    issues TEXT,
     has_https INTEGER,
     is_mobile_friendly INTEGER,
     has_cms INTEGER,
@@ -42,9 +59,8 @@ db.exec(`
     pagespeed_score INTEGER,
     copyright_year INTEGER,
     last_modified TEXT,
-    tech_stack TEXT,       -- JSON array
+    tech_stack TEXT,
     analysis_error TEXT,
-    -- Tracking
     contacted INTEGER DEFAULT 0,
     notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -56,14 +72,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_leads_search ON leads(search_id);
 `);
 
-// Prepared statements
 const stmts = {
-  createSearch: db.prepare(`
-    INSERT INTO searches (query, location) VALUES (?, ?)
-  `),
-  updateSearchStatus: db.prepare(`
-    UPDATE searches SET status = ?, total_results = ? WHERE id = ?
-  `),
+  createSearch: db.prepare(`INSERT INTO searches (query, location) VALUES (?, ?)`),
+  updateSearchStatus: db.prepare(`UPDATE searches SET status = ?, total_results = ? WHERE id = ?`),
   insertLead: db.prepare(`
     INSERT OR IGNORE INTO leads
     (search_id, name, address, phone, website, google_maps_url, rating, review_count, category)
