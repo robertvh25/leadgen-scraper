@@ -111,7 +111,7 @@ app.get('/api/dashboard', (req, res) => {
     queue: db.getQueueStats(),
     scheduler: scheduler.getStatus(),
     settings: db.getAllSettings(),
-    new_today: parseLeadList(db.getNewLeadsToday().slice(0, 12)),
+    new_today: parseLeadList(db.getTopLeadsToday()),
     pending_count: db.countPendingActions(),
     stage_stats: db.getStageStats(),
   });

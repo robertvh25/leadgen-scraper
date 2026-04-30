@@ -21,8 +21,12 @@
         <span class="icon">📊</span>Dashboard
       </div>
       <div class="nav-item" data-view="leads">
-        <span class="icon">🎯</span>Nieuwe leads
+        <span class="icon">🎯</span>Hoge score leads
         <span class="badge" id="navLeadsCount">0</span>
+      </div>
+      <div class="nav-item" data-view="all-leads">
+        <span class="icon">📋</span>Alle leads
+        <span class="badge" id="navAllLeadsCount">0</span>
       </div>
       <div class="nav-item" data-view="funnel">
         <span class="icon">💼</span>Funnel
@@ -136,19 +140,36 @@
           </div>
         </div>
 
-        <!-- LEADS -->
+        <!-- LEADS (HOGE SCORE - default ≥50) -->
         <div class="view" id="view-leads">
+          <p class="subtitle">Leads met score ≥ 50 — de meest interessante prospects</p>
           <div class="filter-bar">
             <input type="text" id="filterText" placeholder="🔍 Filter op naam, adres...">
             <select id="filterBranch"><option value="">Alle branches</option></select>
             <select id="filterCity"><option value="">Alle steden</option></select>
-            <button class="chip active" data-filter="all">Alles</button>
-            <button class="chip" data-filter="high">Score ≥ 60</button>
-            <button class="chip" data-filter="vhigh">Score ≥ 80</button>
+            <button class="chip active" data-filter="50">≥ 50</button>
+            <button class="chip" data-filter="60">≥ 60</button>
+            <button class="chip" data-filter="80">≥ 80</button>
             <button class="chip" data-filter="uncontacted">Niet benaderd</button>
             <button class="ghost" id="exportBtn">↓ CSV</button>
           </div>
           <div class="leads-grid" id="leadsGrid"></div>
+        </div>
+
+        <!-- ALL LEADS (geen filter) -->
+        <div class="view" id="view-all-leads">
+          <p class="subtitle">Alle leads in database — geen score filter</p>
+          <div class="filter-bar">
+            <input type="text" id="filterTextAll" placeholder="🔍 Filter op naam, adres...">
+            <select id="filterBranchAll"><option value="">Alle branches</option></select>
+            <select id="filterCityAll"><option value="">Alle steden</option></select>
+            <button class="chip active" data-filter-all="all">Alles</button>
+            <button class="chip" data-filter-all="analyzed">Geanalyseerd</button>
+            <button class="chip" data-filter-all="unanalyzed">Nog niet geanalyseerd</button>
+            <button class="chip" data-filter-all="uncontacted">Niet benaderd</button>
+            <button class="ghost" id="exportBtnAll">↓ CSV</button>
+          </div>
+          <div class="leads-grid" id="allLeadsGrid"></div>
         </div>
 
         <!-- LEAD DETAIL -->

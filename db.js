@@ -254,6 +254,7 @@ const stmts = {
   updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
   getAllLeads: db.prepare(`SELECT * FROM leads WHERE (?1 IS NULL OR replacement_score >= ?1) AND (?2 IS NULL OR contacted = ?2) AND (?3 IS NULL OR branch_name = ?3) AND (?4 IS NULL OR city_name = ?4) AND (?5 IS NULL OR stage = ?5) ORDER BY replacement_score DESC NULLS LAST, created_at DESC LIMIT ?6`),
   getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
+  getTopLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') AND replacement_score IS NOT NULL ORDER BY replacement_score DESC, created_at DESC LIMIT 20`),
   getLead: db.prepare(`SELECT * FROM leads WHERE id = ?`),
   getUnanalyzedLeads: db.prepare(`SELECT * FROM leads WHERE search_id = ? AND analyzed = 0 AND website IS NOT NULL AND website != ''`),
   markContacted: db.prepare(`UPDATE leads SET contacted = ? WHERE id = ?`),
@@ -340,6 +341,7 @@ module.exports = {
     f.stage ?? null, f.limit ?? 500
   ),
   getNewLeadsToday: () => stmts.getNewLeadsToday.all(),
+  getTopLeadsToday: () => stmts.getTopLeadsToday.all(),
   getLead: (id) => stmts.getLead.get(id),
   getUnanalyzedLeads: (sid) => stmts.getUnanalyzedLeads.all(sid),
   markContacted: (id, c) => stmts.markContacted.run(c ? 1 : 0, id),

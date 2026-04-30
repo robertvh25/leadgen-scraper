@@ -17,10 +17,15 @@ const FUNNEL_STAGES = STAGES.filter(s => !['new', 'lost'].includes(s.id));
 const state = {
   view: 'dashboard',
   leads: [],
-  filter: 'all',
+  allLeads: [],
+  filter: '50',  // default ≥ 50
   filterText: '',
   filterBranch: '',
   filterCity: '',
+  filterAll: 'all',
+  filterTextAll: '',
+  filterBranchAll: '',
+  filterCityAll: '',
   branches: [],
   cities: [],
   templates: [],
@@ -92,7 +97,8 @@ function switchView(view, data = {}) {
 
   const titles = {
     dashboard: 'Dashboard',
-    leads: 'Nieuwe leads',
+    leads: 'Hoge score leads',
+    'all-leads': 'Alle leads',
     funnel: 'Funnel',
     pending: 'Berichten te bevestigen',
     projects: 'Projecten',
@@ -108,6 +114,7 @@ function switchView(view, data = {}) {
 
   if (view === 'dashboard') loadDashboard();
   if (view === 'leads') loadLeads();
+  if (view === 'all-leads') loadAllLeads();
   if (view === 'funnel') loadFunnel();
   if (view === 'pending') loadPending();
   if (view === 'branches') loadBranches();
@@ -134,6 +141,8 @@ async function loadDashboard() {
 
     updateAutopilotUI(data.scheduler);
     $('#navLeadsCount').textContent = data.stats.high_score_leads;
+    const navAll = $('#navAllLeadsCount');
+    if (navAll) navAll.textContent = data.stats.total_leads;
     $('#navFunnelCount').textContent = data.stats.in_funnel;
     $('#navPendingCount').textContent = data.pending_count;
 
@@ -222,14 +231,20 @@ function attachLeadCardHandlers(scope) {
   });
 }
 
-// === LEADS LIST ===
+// === LEADS LIST (HOGE SCORE - default ≥50) ===
 async function loadLeads() {
   const params = new URLSearchParams();
   if (state.filterBranch) params.set('branch', state.filterBranch);
   if (state.filterCity) params.set('city', state.filterCity);
-  if (state.filter === 'high') params.set('minScore', '60');
-  if (state.filter === 'vhigh') params.set('minScore', '80');
-  if (state.filter === 'uncontacted') params.set('contacted', 'false');
+
+  // Score filter: default 50, of wat user kiest
+  if (state.filter === '50') params.set('minScore', '50');
+  else if (state.filter === '60') params.set('minScore', '60');
+  else if (state.filter === '80') params.set('minScore', '80');
+  else if (state.filter === 'uncontacted') {
+    params.set('minScore', '50');
+    params.set('contacted', 'false');
+  }
 
   state.leads = await api(`/api/leads?${params}`);
   renderLeads();
@@ -265,9 +280,10 @@ function renderLeads() {
   attachLeadCardHandlers(grid);
 }
 
-$$('.chip').forEach(chip => {
+// Chips voor 'leads' view (score-based)
+$$('#view-leads .chip').forEach(chip => {
   chip.addEventListener('click', () => {
-    $$('.chip').forEach(c => c.classList.remove('active'));
+    $$('#view-leads .chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
     state.filter = chip.dataset.filter;
     loadLeads();
@@ -280,8 +296,82 @@ $('#exportBtn').addEventListener('click', () => {
   const params = new URLSearchParams();
   if (state.filterBranch) params.set('branch', state.filterBranch);
   if (state.filterCity) params.set('city', state.filterCity);
-  if (state.filter === 'high') params.set('minScore', '60');
-  if (state.filter === 'vhigh') params.set('minScore', '80');
+  if (state.filter === '50') params.set('minScore', '50');
+  if (state.filter === '60') params.set('minScore', '60');
+  if (state.filter === '80') params.set('minScore', '80');
+  if (state.filter === 'uncontacted') { params.set('minScore', '50'); params.set('contacted', 'false'); }
+  window.location = `/api/export.csv?${params}`;
+});
+
+// === ALL LEADS (geen score filter) ===
+async function loadAllLeads() {
+  const params = new URLSearchParams();
+  params.set('limit', '1000');
+  if (state.filterBranchAll) params.set('branch', state.filterBranchAll);
+  if (state.filterCityAll) params.set('city', state.filterCityAll);
+  if (state.filterAll === 'uncontacted') params.set('contacted', 'false');
+  state.allLeads = await api(`/api/leads?${params}`);
+  // Client-side filter voor analyzed/unanalyzed
+  if (state.filterAll === 'analyzed') {
+    state.allLeads = state.allLeads.filter(l => l.analyzed);
+  } else if (state.filterAll === 'unanalyzed') {
+    state.allLeads = state.allLeads.filter(l => !l.analyzed);
+  }
+  renderAllLeads();
+  populateAllLeadsFilterDropdowns();
+}
+
+function populateAllLeadsFilterDropdowns() {
+  const branchSet = new Set(state.allLeads.map(l => l.branch_name).filter(Boolean));
+  const citySet = new Set(state.allLeads.map(l => l.city_name).filter(Boolean));
+  const bSel = $('#filterBranchAll'), cSel = $('#filterCityAll');
+  if (!bSel || !cSel) return;
+  const cb = bSel.value, cc = cSel.value;
+  bSel.innerHTML = '<option value="">Alle branches</option>' + [...branchSet].sort().map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+  cSel.innerHTML = '<option value="">Alle steden</option>' + [...citySet].sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  bSel.value = cb; cSel.value = cc;
+}
+
+function renderAllLeads() {
+  const grid = $('#allLeadsGrid');
+  if (!grid) return;
+  let leads = state.allLeads;
+  if (state.filterTextAll) {
+    const q = state.filterTextAll.toLowerCase();
+    leads = leads.filter(l =>
+      (l.name || '').toLowerCase().includes(q) ||
+      (l.address || '').toLowerCase().includes(q) ||
+      (l.issues || []).join(' ').toLowerCase().includes(q)
+    );
+  }
+  if (leads.length === 0) {
+    grid.innerHTML = `<div class="empty"><h3>Geen leads</h3><p>Pas filters aan of wacht tot auto-pilot meer leads vindt</p></div>`;
+    return;
+  }
+  grid.innerHTML = `<p style="font-size:12px;color:var(--text-faint);margin-bottom:8px;">${leads.length} leads getoond</p>` + leads.map(renderLeadCard).join('');
+  attachLeadCardHandlers(grid);
+}
+
+// Chips voor 'all-leads' view
+$$('#view-all-leads .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    $$('#view-all-leads .chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.filterAll = chip.dataset.filterAll;
+    loadAllLeads();
+  });
+});
+const ftAll = $('#filterTextAll');
+if (ftAll) ftAll.addEventListener('input', e => { state.filterTextAll = e.target.value; renderAllLeads(); });
+const fbAll = $('#filterBranchAll');
+if (fbAll) fbAll.addEventListener('change', e => { state.filterBranchAll = e.target.value; loadAllLeads(); });
+const fcAll = $('#filterCityAll');
+if (fcAll) fcAll.addEventListener('change', e => { state.filterCityAll = e.target.value; loadAllLeads(); });
+const ebAll = $('#exportBtnAll');
+if (ebAll) ebAll.addEventListener('click', () => {
+  const params = new URLSearchParams();
+  if (state.filterBranchAll) params.set('branch', state.filterBranchAll);
+  if (state.filterCityAll) params.set('city', state.filterCityAll);
   window.location = `/api/export.csv?${params}`;
 });
 
