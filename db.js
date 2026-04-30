@@ -1,4 +1,4 @@
-// db.js - SQLite database voor leads + queue + settings
+// db.js - SQLite database
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
@@ -13,7 +13,7 @@ function resolveDbPath() {
     return preferred;
   } catch (err) {
     const fallback = path.join(__dirname, 'leads.db');
-    console.warn(`⚠ Kan niet schrijven naar ${dir} (${err.code}), gebruik fallback: ${fallback}`);
+    console.warn(`⚠ Fallback DB pad: ${fallback}`);
     return fallback;
   }
 }
@@ -22,134 +22,198 @@ const dbPath = resolveDbPath();
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 
+// === Schema ===
 db.exec(`
-  CREATE TABLE IF NOT EXISTS branches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    enabled INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS cities (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    enabled INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS queue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    branch_name TEXT NOT NULL,
-    city_name TEXT NOT NULL,
-    last_run DATETIME,
-    last_status TEXT,
-    next_run DATETIME,
-    leads_found INTEGER DEFAULT 0,
-    error_count INTEGER DEFAULT 0,
-    UNIQUE(branch_name, city_name)
-  );
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
-  CREATE TABLE IF NOT EXISTS searches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    query TEXT NOT NULL,
-    location TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    total_results INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'running',
-    auto INTEGER DEFAULT 0
-  );
+  CREATE TABLE IF NOT EXISTS branches (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, enabled INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+  CREATE TABLE IF NOT EXISTS cities (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, enabled INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+  CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY AUTOINCREMENT, branch_name TEXT NOT NULL, city_name TEXT NOT NULL, last_run DATETIME, last_status TEXT, next_run DATETIME, leads_found INTEGER DEFAULT 0, error_count INTEGER DEFAULT 0, UNIQUE(branch_name, city_name));
+  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE IF NOT EXISTS searches (id INTEGER PRIMARY KEY AUTOINCREMENT, query TEXT NOT NULL, location TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, total_results INTEGER DEFAULT 0, status TEXT DEFAULT 'running', auto INTEGER DEFAULT 0);
   CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    search_id INTEGER,
-    name TEXT NOT NULL,
-    address TEXT,
-    phone TEXT,
-    website TEXT,
-    google_maps_url TEXT,
-    rating REAL,
-    review_count INTEGER,
-    category TEXT,
-    branch_name TEXT,
-    city_name TEXT,
-    analyzed INTEGER DEFAULT 0,
-    replacement_score INTEGER,
-    issues TEXT,
-    has_https INTEGER,
-    is_mobile_friendly INTEGER,
-    has_cms INTEGER,
-    cms_type TEXT,
-    has_viewport_meta INTEGER,
-    has_open_graph INTEGER,
-    pagespeed_score INTEGER,
-    copyright_year INTEGER,
-    last_modified TEXT,
-    tech_stack TEXT,
-    analysis_error TEXT,
-    emails TEXT,
-    contacted INTEGER DEFAULT 0,
-    notes TEXT,
+    search_id INTEGER, name TEXT NOT NULL, address TEXT, phone TEXT, website TEXT,
+    google_maps_url TEXT, rating REAL, review_count INTEGER, category TEXT,
+    branch_name TEXT, city_name TEXT,
+    analyzed INTEGER DEFAULT 0, replacement_score INTEGER, issues TEXT,
+    has_https INTEGER, is_mobile_friendly INTEGER, has_cms INTEGER, cms_type TEXT,
+    has_viewport_meta INTEGER, has_open_graph INTEGER, pagespeed_score INTEGER,
+    copyright_year INTEGER, last_modified TEXT, tech_stack TEXT, analysis_error TEXT,
+    emails TEXT, screenshot_path TEXT,
+    contacted INTEGER DEFAULT 0, notes TEXT,
+    stage TEXT DEFAULT 'new',
+    deal_added_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (search_id) REFERENCES searches(id),
     UNIQUE(name, address)
   );
   CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(replacement_score DESC);
-  CREATE INDEX IF NOT EXISTS idx_leads_search ON leads(search_id);
+  CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
   CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_queue_next ON queue(next_run);
+
+  CREATE TABLE IF NOT EXISTS templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'email',
+    subject TEXT,
+    body TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS sequences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    trigger_stage TEXT DEFAULT 'contacted',
+    enabled INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS sequence_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sequence_id INTEGER NOT NULL,
+    step_order INTEGER NOT NULL,
+    template_id INTEGER NOT NULL,
+    delay_days INTEGER DEFAULT 0,
+    require_approval INTEGER DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS lead_campaigns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    sequence_id INTEGER NOT NULL,
+    current_step INTEGER DEFAULT 0,
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_action_at DATETIME,
+    status TEXT DEFAULT 'active',
+    UNIQUE(lead_id, sequence_id)
+  );
+  CREATE TABLE IF NOT EXISTS pending_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    campaign_id INTEGER,
+    step_id INTEGER,
+    type TEXT NOT NULL,
+    template_id INTEGER,
+    rendered_subject TEXT,
+    rendered_body TEXT,
+    recipient TEXT,
+    scheduled_for DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_actions(status);
+
+  CREATE TABLE IF NOT EXISTS communications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    direction TEXT DEFAULT 'outbound',
+    subject TEXT,
+    body TEXT,
+    recipient TEXT,
+    status TEXT DEFAULT 'sent',
+    error TEXT,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_comms_lead ON communications(lead_id);
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    name TEXT NOT NULL,
+    status TEXT DEFAULT 'planning',
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
+// Migration helpers
 function addColumnIfMissing(table, col, def) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!cols.find(c => c.name === col)) {
     try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch (e) {}
   }
 }
-addColumnIfMissing('leads', 'branch_name', 'TEXT');
-addColumnIfMissing('leads', 'city_name', 'TEXT');
-addColumnIfMissing('leads', 'emails', 'TEXT');
-addColumnIfMissing('searches', 'auto', 'INTEGER DEFAULT 0');
+addColumnIfMissing('leads', 'screenshot_path', 'TEXT');
+addColumnIfMissing('leads', 'stage', `TEXT DEFAULT 'new'`);
+addColumnIfMissing('leads', 'deal_added_at', 'DATETIME');
+
+// Set default stage for any lead without one (existing leads)
+db.exec(`UPDATE leads SET stage = 'new' WHERE stage IS NULL OR stage = ''`);
 
 function seedDefaults() {
-  const branchCount = db.prepare(`SELECT COUNT(*) AS c FROM branches`).get().c;
-  if (branchCount === 0) {
-    const branches = [
-      'kozijnbedrijf', 'kunststof kozijnen', 'aluminium kozijnen', 'houten kozijnen',
-      'dakkapel installateur', 'zonwering bedrijf', 'rolluiken bedrijf',
-      'gevelbekleding bedrijf', 'serrebouwer', 'glaszetter',
-      'horren specialist', 'schuifpui leverancier',
-    ];
+  if (db.prepare(`SELECT COUNT(*) AS c FROM branches`).get().c === 0) {
+    const items = ['kozijnbedrijf', 'kunststof kozijnen', 'aluminium kozijnen', 'houten kozijnen', 'dakkapel installateur', 'zonwering bedrijf', 'rolluiken bedrijf', 'gevelbekleding bedrijf', 'serrebouwer', 'glaszetter', 'horren specialist', 'schuifpui leverancier'];
     const stmt = db.prepare(`INSERT OR IGNORE INTO branches (name) VALUES (?)`);
-    for (const b of branches) stmt.run(b);
-    console.log(`✓ ${branches.length} default branches geseed`);
+    for (const i of items) stmt.run(i);
   }
-  const cityCount = db.prepare(`SELECT COUNT(*) AS c FROM cities`).get().c;
-  if (cityCount === 0) {
-    const cities = [
-      'Amsterdam', 'Rotterdam', 'Den Haag', 'Utrecht', 'Eindhoven',
-      'Groningen', 'Tilburg', 'Almere', 'Breda', 'Nijmegen',
-      'Apeldoorn', 'Haarlem', 'Enschede', 'Arnhem', 'Amersfoort',
-      'Zaanstad', 'Den Bosch', 'Haarlemmermeer', 'Zwolle', 'Zoetermeer',
-      'Leeuwarden', 'Leiden', 'Maastricht', 'Dordrecht', 'Alphen aan den Rijn',
-      'Alkmaar', 'Delft', 'Venlo', 'Deventer', 'Sittard',
-      'Helmond', 'Hilversum', 'Heerlen', 'Oss', 'Amstelveen',
-      'Hoofddorp', 'Roosendaal', 'Purmerend', 'Vlaardingen', 'Capelle aan den IJssel',
-      'Nieuwegein', 'Bergen op Zoom', 'Spijkenisse', 'Hengelo', 'Roermond',
-      'Almelo', 'Gouda', 'Lelystad', 'Schiedam', 'Veenendaal',
-    ];
+  if (db.prepare(`SELECT COUNT(*) AS c FROM cities`).get().c === 0) {
+    const items = ['Amsterdam', 'Rotterdam', 'Den Haag', 'Utrecht', 'Eindhoven', 'Groningen', 'Tilburg', 'Almere', 'Breda', 'Nijmegen', 'Apeldoorn', 'Haarlem', 'Enschede', 'Arnhem', 'Amersfoort', 'Zaanstad', 'Den Bosch', 'Haarlemmermeer', 'Zwolle', 'Zoetermeer', 'Leeuwarden', 'Leiden', 'Maastricht', 'Dordrecht', 'Alphen aan den Rijn', 'Alkmaar', 'Delft', 'Venlo', 'Deventer', 'Sittard', 'Helmond', 'Hilversum', 'Heerlen', 'Oss', 'Amstelveen', 'Hoofddorp', 'Roosendaal', 'Purmerend', 'Vlaardingen', 'Capelle aan den IJssel', 'Nieuwegein', 'Bergen op Zoom', 'Spijkenisse', 'Hengelo', 'Roermond', 'Almelo', 'Gouda', 'Lelystad', 'Schiedam', 'Veenendaal'];
     const stmt = db.prepare(`INSERT OR IGNORE INTO cities (name) VALUES (?)`);
-    for (const c of cities) stmt.run(c);
-    console.log(`✓ ${cities.length} default cities geseed`);
+    for (const i of items) stmt.run(i);
   }
   const defaults = {
-    autopilot_enabled: '0',
-    searches_per_hour: '3',
-    max_results_per_search: '20',
-    repeat_interval_days: '14',
-    night_mode: '1',
+    autopilot_enabled: '0', searches_per_hour: '3', max_results_per_search: '20',
+    repeat_interval_days: '14', night_mode: '1',
+    sender_name: 'Robert van Hoof', sender_email: '', reply_to: '',
+    company_name: 'Aitomade', signature: 'Met vriendelijke groet,\nRobert van Hoof\nAitomade',
+    auto_add_high_score_to_funnel: '0', high_score_threshold: '70',
   };
   for (const [k, v] of Object.entries(defaults)) {
     db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`).run(k, v);
+  }
+  // Default email template
+  if (db.prepare(`SELECT COUNT(*) AS c FROM templates`).get().c === 0) {
+    db.prepare(`INSERT INTO templates (name, type, subject, body) VALUES (?, ?, ?, ?)`).run(
+      'Eerste contact - website verouderd',
+      'email',
+      'Vraag over uw website {{lead.website_short}}',
+      `Hallo,
+
+Ik bekeek uw website {{lead.website}} tijdens onderzoek naar {{lead.branch_name}} bedrijven in {{lead.city_name}}.
+
+Wat me opviel:
+- {{lead.first_issue}}
+- PageSpeed score: {{lead.pagespeed_score}}/100
+
+Een moderne, mobiel-vriendelijke website levert tegenwoordig 30-50% meer aanvragen op. Ik help kozijnbedrijven met websites die echt werken.
+
+Heeft u 10 minuten voor een vrijblijvend gesprek?
+
+{{settings.signature}}`
+    );
+    db.prepare(`INSERT INTO templates (name, type, subject, body) VALUES (?, ?, ?, ?)`).run(
+      'Follow-up 1 - na 3 dagen',
+      'email',
+      'RE: uw website {{lead.website_short}}',
+      `Hallo,
+
+Ik mailde u onlangs over de website van {{lead.name}}. Wellicht is mijn bericht in spam beland of niet doorgekomen.
+
+Korte vraag: bent u tevreden met het aantal aanvragen via {{lead.website_short}}?
+
+Als het antwoord "kan beter" is, laat me dan vrijblijvend zien hoe een nieuwe website het verschil kan maken.
+
+{{settings.signature}}`
+    );
+    db.prepare(`INSERT INTO templates (name, type, body) VALUES (?, ?, ?)`).run(
+      'WhatsApp - eerste contact', 'whatsapp',
+      `Hallo, ik bekeek uw website {{lead.website_short}} en heb een idee waarmee {{lead.name}} meer aanvragen kan krijgen. Mag ik u 10 min daarover spreken? - {{settings.sender_name}}, {{settings.company_name}}`
+    );
+  }
+  // Default sequence
+  if (db.prepare(`SELECT COUNT(*) AS c FROM sequences`).get().c === 0) {
+    const seqRes = db.prepare(`INSERT INTO sequences (name, description, trigger_stage) VALUES (?, ?, ?)`).run(
+      'Standaard outreach', 'Email + WhatsApp follow-up sequence', 'contacted'
+    );
+    const seqId = seqRes.lastInsertRowid;
+    const templates = db.prepare(`SELECT id, name FROM templates ORDER BY id`).all();
+    if (templates.length >= 1) {
+      db.prepare(`INSERT INTO sequence_steps (sequence_id, step_order, template_id, delay_days, require_approval) VALUES (?, ?, ?, ?, ?)`).run(seqId, 1, templates[0].id, 0, 1);
+    }
+    if (templates.length >= 2) {
+      db.prepare(`INSERT INTO sequence_steps (sequence_id, step_order, template_id, delay_days, require_approval) VALUES (?, ?, ?, ?, ?)`).run(seqId, 2, templates[1].id, 3, 1);
+    }
+    if (templates.length >= 3) {
+      db.prepare(`INSERT INTO sequence_steps (sequence_id, step_order, template_id, delay_days, require_approval) VALUES (?, ?, ?, ?, ?)`).run(seqId, 3, templates[2].id, 5, 1);
+    }
   }
 }
 seedDefaults();
@@ -157,18 +221,12 @@ seedDefaults();
 function syncQueue() {
   const branches = db.prepare(`SELECT name FROM branches WHERE enabled = 1`).all();
   const cities = db.prepare(`SELECT name FROM cities WHERE enabled = 1`).all();
-  const insert = db.prepare(`
-    INSERT OR IGNORE INTO queue (branch_name, city_name, next_run)
-    VALUES (?, ?, datetime('now'))
-  `);
+  const insert = db.prepare(`INSERT OR IGNORE INTO queue (branch_name, city_name, next_run) VALUES (?, ?, datetime('now'))`);
   let added = 0;
-  for (const b of branches) {
-    for (const c of cities) {
-      const r = insert.run(b.name, c.name);
-      if (r.changes > 0) added++;
-    }
+  for (const b of branches) for (const c of cities) {
+    const r = insert.run(b.name, c.name);
+    if (r.changes > 0) added++;
   }
-  if (added > 0) console.log(`✓ Queue sync: ${added} nieuwe combinaties toegevoegd`);
   return added;
 }
 
@@ -184,161 +242,153 @@ const stmts = {
   insertCity: db.prepare(`INSERT OR IGNORE INTO cities (name) VALUES (?)`),
   toggleCity: db.prepare(`UPDATE cities SET enabled = ? WHERE id = ?`),
   deleteCity: db.prepare(`DELETE FROM cities WHERE id = ?`),
-  getQueueStats: db.prepare(`
-    SELECT COUNT(*) AS total,
-      SUM(CASE WHEN last_run IS NULL THEN 1 ELSE 0 END) AS never_run,
-      SUM(CASE WHEN last_run IS NOT NULL THEN 1 ELSE 0 END) AS run_at_least_once,
-      SUM(CASE WHEN next_run <= datetime('now') THEN 1 ELSE 0 END) AS due_now
-    FROM queue
-  `),
-  pickNextQueueItem: db.prepare(`
-    SELECT * FROM queue
-    WHERE next_run <= datetime('now') AND error_count < 5
-    ORDER BY
-      CASE WHEN last_run IS NULL THEN 0 ELSE 1 END,
-      next_run ASC, RANDOM()
-    LIMIT 1
-  `),
-  updateQueueItem: db.prepare(`
-    UPDATE queue SET
-      last_run = datetime('now'),
-      last_status = ?,
-      next_run = datetime('now', '+' || ? || ' days'),
-      leads_found = leads_found + ?,
-      error_count = CASE WHEN ? = 'error' THEN error_count + 1 ELSE 0 END
-    WHERE id = ?
-  `),
-  rescheduleQueueItem: db.prepare(`
-    UPDATE queue SET next_run = datetime('now', '+' || ? || ' minutes') WHERE id = ?
-  `),
-  getRecentQueueRuns: db.prepare(`
-    SELECT * FROM queue WHERE last_run IS NOT NULL ORDER BY last_run DESC LIMIT 20
-  `),
+  getQueueStats: db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN last_run IS NULL THEN 1 ELSE 0 END) AS never_run, SUM(CASE WHEN last_run IS NOT NULL THEN 1 ELSE 0 END) AS run_at_least_once, SUM(CASE WHEN next_run <= datetime('now') THEN 1 ELSE 0 END) AS due_now FROM queue`),
+  pickNextQueueItem: db.prepare(`SELECT * FROM queue WHERE next_run <= datetime('now') AND error_count < 5 ORDER BY CASE WHEN last_run IS NULL THEN 0 ELSE 1 END, next_run ASC, RANDOM() LIMIT 1`),
+  updateQueueItem: db.prepare(`UPDATE queue SET last_run = datetime('now'), last_status = ?, next_run = datetime('now', '+' || ? || ' days'), leads_found = leads_found + ?, error_count = CASE WHEN ? = 'error' THEN error_count + 1 ELSE 0 END WHERE id = ?`),
+  rescheduleQueueItem: db.prepare(`UPDATE queue SET next_run = datetime('now', '+' || ? || ' minutes') WHERE id = ?`),
   createSearch: db.prepare(`INSERT INTO searches (query, location, auto) VALUES (?, ?, ?)`),
   updateSearchStatus: db.prepare(`UPDATE searches SET status = ?, total_results = ? WHERE id = ?`),
-  insertLead: db.prepare(`
-    INSERT OR IGNORE INTO leads
-    (search_id, name, address, phone, website, google_maps_url, rating, review_count, category, branch_name, city_name)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `),
-  updateLeadAnalysis: db.prepare(`
-    UPDATE leads SET
-      analyzed = 1, replacement_score = ?, issues = ?,
-      has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?,
-      has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?,
-      copyright_year = ?, last_modified = ?, tech_stack = ?,
-      analysis_error = ?, emails = ?
-    WHERE id = ?
-  `),
-  getSearches: db.prepare(`
-    SELECT s.*,
-      (SELECT COUNT(*) FROM leads WHERE search_id = s.id) AS lead_count,
-      (SELECT COUNT(*) FROM leads WHERE search_id = s.id AND analyzed = 1) AS analyzed_count
-    FROM searches s ORDER BY created_at DESC LIMIT 100
-  `),
-  getLeadsBySearch: db.prepare(`
-    SELECT * FROM leads WHERE search_id = ?
-    ORDER BY replacement_score DESC NULLS LAST, created_at ASC
-  `),
-  getAllLeads: db.prepare(`
-    SELECT * FROM leads
-    WHERE (?1 IS NULL OR replacement_score >= ?1)
-      AND (?2 IS NULL OR contacted = ?2)
-      AND (?3 IS NULL OR branch_name = ?3)
-      AND (?4 IS NULL OR city_name = ?4)
-    ORDER BY replacement_score DESC NULLS LAST, created_at DESC
-    LIMIT ?5
-  `),
-  getNewLeadsToday: db.prepare(`
-    SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day')
-    ORDER BY replacement_score DESC NULLS LAST LIMIT 50
-  `),
+  insertLead: db.prepare(`INSERT OR IGNORE INTO leads (search_id, name, address, phone, website, google_maps_url, rating, review_count, category, branch_name, city_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ? WHERE id = ?`),
+  updateLeadScreenshot: db.prepare(`UPDATE leads SET screenshot_path = ? WHERE id = ?`),
+  updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
+  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (?1 IS NULL OR replacement_score >= ?1) AND (?2 IS NULL OR contacted = ?2) AND (?3 IS NULL OR branch_name = ?3) AND (?4 IS NULL OR city_name = ?4) AND (?5 IS NULL OR stage = ?5) ORDER BY replacement_score DESC NULLS LAST, created_at DESC LIMIT ?6`),
+  getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
   getLead: db.prepare(`SELECT * FROM leads WHERE id = ?`),
-  getUnanalyzedLeads: db.prepare(`
-    SELECT * FROM leads WHERE search_id = ? AND analyzed = 0 AND website IS NOT NULL AND website != ''
-  `),
+  getUnanalyzedLeads: db.prepare(`SELECT * FROM leads WHERE search_id = ? AND analyzed = 0 AND website IS NOT NULL AND website != ''`),
   markContacted: db.prepare(`UPDATE leads SET contacted = ? WHERE id = ?`),
   updateNotes: db.prepare(`UPDATE leads SET notes = ? WHERE id = ?`),
+  // Funnel
+  getDealsByStage: db.prepare(`SELECT * FROM leads WHERE stage NOT IN ('new', 'lost') ORDER BY deal_added_at DESC NULLS LAST`),
+  getStageStats: db.prepare(`SELECT stage, COUNT(*) AS count FROM leads GROUP BY stage`),
+  // Templates
+  getTemplates: db.prepare(`SELECT * FROM templates ORDER BY type, name`),
+  getTemplate: db.prepare(`SELECT * FROM templates WHERE id = ?`),
+  insertTemplate: db.prepare(`INSERT INTO templates (name, type, subject, body, enabled) VALUES (?, ?, ?, ?, ?)`),
+  updateTemplate: db.prepare(`UPDATE templates SET name = ?, type = ?, subject = ?, body = ?, enabled = ? WHERE id = ?`),
+  deleteTemplate: db.prepare(`DELETE FROM templates WHERE id = ?`),
+  // Sequences
+  getSequences: db.prepare(`SELECT * FROM sequences ORDER BY name`),
+  getSequence: db.prepare(`SELECT * FROM sequences WHERE id = ?`),
+  insertSequence: db.prepare(`INSERT INTO sequences (name, description, trigger_stage, enabled) VALUES (?, ?, ?, ?)`),
+  updateSequence: db.prepare(`UPDATE sequences SET name = ?, description = ?, trigger_stage = ?, enabled = ? WHERE id = ?`),
+  deleteSequence: db.prepare(`DELETE FROM sequences WHERE id = ?`),
+  getSequenceSteps: db.prepare(`SELECT s.*, t.name AS template_name, t.type AS template_type FROM sequence_steps s LEFT JOIN templates t ON s.template_id = t.id WHERE sequence_id = ? ORDER BY step_order`),
+  insertSequenceStep: db.prepare(`INSERT INTO sequence_steps (sequence_id, step_order, template_id, delay_days, require_approval) VALUES (?, ?, ?, ?, ?)`),
+  deleteSequenceSteps: db.prepare(`DELETE FROM sequence_steps WHERE sequence_id = ?`),
+  // Lead campaigns
+  startLeadCampaign: db.prepare(`INSERT OR IGNORE INTO lead_campaigns (lead_id, sequence_id) VALUES (?, ?)`),
+  getActiveCampaigns: db.prepare(`SELECT * FROM lead_campaigns WHERE status = 'active'`),
+  getLeadCampaigns: db.prepare(`SELECT lc.*, s.name AS sequence_name FROM lead_campaigns lc JOIN sequences s ON lc.sequence_id = s.id WHERE lc.lead_id = ?`),
+  advanceCampaign: db.prepare(`UPDATE lead_campaigns SET current_step = current_step + 1, last_action_at = datetime('now') WHERE id = ?`),
+  completeCampaign: db.prepare(`UPDATE lead_campaigns SET status = 'completed', last_action_at = datetime('now') WHERE id = ?`),
+  // Pending actions
+  insertPendingAction: db.prepare(`INSERT INTO pending_actions (lead_id, campaign_id, step_id, type, template_id, rendered_subject, rendered_body, recipient, scheduled_for) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  getPendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name, l.website AS lead_website, l.replacement_score FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.scheduled_for <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 50`),
+  getPendingAction: db.prepare(`SELECT * FROM pending_actions WHERE id = ?`),
+  updatePendingActionStatus: db.prepare(`UPDATE pending_actions SET status = ? WHERE id = ?`),
+  countPendingActions: db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending' AND scheduled_for <= datetime('now')`),
+  // Communications
+  insertCommunication: db.prepare(`INSERT INTO communications (lead_id, type, direction, subject, body, recipient, status, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+  getLeadCommunications: db.prepare(`SELECT * FROM communications WHERE lead_id = ? ORDER BY sent_at DESC LIMIT 100`),
+  // Projects
+  getProjects: db.prepare(`SELECT p.*, l.name AS lead_name, l.website AS lead_website FROM projects p LEFT JOIN leads l ON p.lead_id = l.id ORDER BY p.created_at DESC`),
+  insertProject: db.prepare(`INSERT INTO projects (lead_id, name, status, notes) VALUES (?, ?, ?, ?)`),
+  updateProject: db.prepare(`UPDATE projects SET name = ?, status = ?, notes = ? WHERE id = ?`),
+  deleteProject: db.prepare(`DELETE FROM projects WHERE id = ?`),
+  // Stats
+  getDashboardStats: db.prepare(`SELECT (SELECT COUNT(*) FROM leads) AS total_leads, (SELECT COUNT(*) FROM leads WHERE analyzed = 1) AS analyzed_leads, (SELECT COUNT(*) FROM leads WHERE replacement_score >= 60) AS high_score_leads, (SELECT COUNT(*) FROM leads WHERE replacement_score >= 80) AS very_high_score_leads, (SELECT COUNT(*) FROM leads WHERE created_at >= datetime('now', '-1 day')) AS leads_today, (SELECT COUNT(*) FROM leads WHERE contacted = 1) AS contacted, (SELECT COUNT(*) FROM leads WHERE stage NOT IN ('new', 'lost')) AS in_funnel, (SELECT COUNT(DISTINCT branch_name) FROM leads) AS unique_branches, (SELECT COUNT(DISTINCT city_name) FROM leads) AS unique_cities`),
   deleteSearch: db.prepare(`DELETE FROM searches WHERE id = ?`),
   deleteLeadsBySearch: db.prepare(`DELETE FROM leads WHERE search_id = ?`),
-  getDashboardStats: db.prepare(`
-    SELECT
-      (SELECT COUNT(*) FROM leads) AS total_leads,
-      (SELECT COUNT(*) FROM leads WHERE analyzed = 1) AS analyzed_leads,
-      (SELECT COUNT(*) FROM leads WHERE replacement_score >= 60) AS high_score_leads,
-      (SELECT COUNT(*) FROM leads WHERE created_at >= datetime('now', '-1 day')) AS leads_today,
-      (SELECT COUNT(*) FROM leads WHERE contacted = 1) AS contacted,
-      (SELECT COUNT(DISTINCT branch_name) FROM leads) AS unique_branches,
-      (SELECT COUNT(DISTINCT city_name) FROM leads) AS unique_cities
-  `),
+  getSearches: db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM leads WHERE search_id = s.id) AS lead_count FROM searches s ORDER BY created_at DESC LIMIT 100`),
 };
 
 module.exports = {
   db, syncQueue,
-  getSetting: (key) => stmts.getSetting.get(key)?.value,
-  setSetting: (key, value) => stmts.setSetting.run(key, String(value)),
-  getAllSettings: () => {
-    const rows = stmts.getAllSettings.all();
-    const obj = {};
-    for (const r of rows) obj[r.key] = r.value;
-    return obj;
-  },
+  getSetting: (k) => stmts.getSetting.get(k)?.value,
+  setSetting: (k, v) => stmts.setSetting.run(k, String(v ?? '')),
+  getAllSettings: () => { const r = stmts.getAllSettings.all(); const o = {}; for (const x of r) o[x.key] = x.value; return o; },
   getBranches: () => stmts.getBranches.all(),
-  addBranch: (name) => stmts.insertBranch.run(name.trim()),
-  toggleBranch: (id, enabled) => stmts.toggleBranch.run(enabled ? 1 : 0, id),
+  addBranch: (n) => stmts.insertBranch.run(n.trim()),
+  toggleBranch: (id, e) => stmts.toggleBranch.run(e ? 1 : 0, id),
   deleteBranch: (id) => stmts.deleteBranch.run(id),
   getCities: () => stmts.getCities.all(),
-  addCity: (name) => stmts.insertCity.run(name.trim()),
-  toggleCity: (id, enabled) => stmts.toggleCity.run(enabled ? 1 : 0, id),
+  addCity: (n) => stmts.insertCity.run(n.trim()),
+  toggleCity: (id, e) => stmts.toggleCity.run(e ? 1 : 0, id),
   deleteCity: (id) => stmts.deleteCity.run(id),
   getQueueStats: () => stmts.getQueueStats.get(),
   pickNextQueueItem: () => stmts.pickNextQueueItem.get(),
-  updateQueueItem: (id, status, intervalDays, leadsFound) =>
-    stmts.updateQueueItem.run(status, intervalDays, leadsFound, status, id),
-  rescheduleQueueItem: (id, minutes) => stmts.rescheduleQueueItem.run(minutes, id),
-  getRecentQueueRuns: () => stmts.getRecentQueueRuns.all(),
-  createSearch: (query, location, auto = false) =>
-    stmts.createSearch.run(query, location, auto ? 1 : 0),
-  updateSearchStatus: (id, status, total) => stmts.updateSearchStatus.run(status, total, id),
-  insertLead: (lead) => stmts.insertLead.run(
-    lead.search_id, lead.name, lead.address, lead.phone,
-    lead.website, lead.google_maps_url, lead.rating, lead.review_count, lead.category,
-    lead.branch_name || null, lead.city_name || null
-  ),
-  updateLeadAnalysis: (id, analysis) => stmts.updateLeadAnalysis.run(
-    analysis.replacement_score,
-    JSON.stringify(analysis.issues || []),
-    analysis.has_https ? 1 : 0,
-    analysis.is_mobile_friendly ? 1 : 0,
-    analysis.has_cms ? 1 : 0,
-    analysis.cms_type,
-    analysis.has_viewport_meta ? 1 : 0,
-    analysis.has_open_graph ? 1 : 0,
-    analysis.pagespeed_score,
-    analysis.copyright_year,
-    analysis.last_modified,
-    JSON.stringify(analysis.tech_stack || []),
-    analysis.error || null,
-    JSON.stringify(analysis.emails || []),
+  updateQueueItem: (id, status, days, found) => stmts.updateQueueItem.run(status, days, found, status, id),
+  rescheduleQueueItem: (id, mins) => stmts.rescheduleQueueItem.run(mins, id),
+  createSearch: (q, l, auto = false) => stmts.createSearch.run(q, l, auto ? 1 : 0),
+  updateSearchStatus: (id, s, t) => stmts.updateSearchStatus.run(s, t, id),
+  insertLead: (lead) => stmts.insertLead.run(lead.search_id, lead.name, lead.address, lead.phone, lead.website, lead.google_maps_url, lead.rating, lead.review_count, lead.category, lead.branch_name || null, lead.city_name || null),
+  updateLeadAnalysis: (id, a) => stmts.updateLeadAnalysis.run(
+    a.replacement_score, JSON.stringify(a.issues || []),
+    a.has_https ? 1 : 0, a.is_mobile_friendly ? 1 : 0,
+    a.has_cms ? 1 : 0, a.cms_type,
+    a.has_viewport_meta ? 1 : 0, a.has_open_graph ? 1 : 0,
+    a.pagespeed_score, a.copyright_year, a.last_modified,
+    JSON.stringify(a.tech_stack || []), a.error || null,
+    JSON.stringify(a.emails || []), a.screenshot_path || null,
     id
   ),
-  getSearches: () => stmts.getSearches.all(),
-  getLeadsBySearch: (searchId) => stmts.getLeadsBySearch.all(searchId),
-  getAllLeads: (filters = {}) => stmts.getAllLeads.all(
-    filters.minScore ?? null,
-    filters.contacted ?? null,
-    filters.branch ?? null,
-    filters.city ?? null,
-    filters.limit ?? 500
+  updateLeadScreenshot: (id, path) => stmts.updateLeadScreenshot.run(path, id),
+  updateLeadStage: (id, stage) => stmts.updateLeadStage.run(stage, stage, id),
+  getAllLeads: (f = {}) => stmts.getAllLeads.all(
+    f.minScore ?? null, f.contacted ?? null, f.branch ?? null, f.city ?? null,
+    f.stage ?? null, f.limit ?? 500
   ),
   getNewLeadsToday: () => stmts.getNewLeadsToday.all(),
   getLead: (id) => stmts.getLead.get(id),
-  getUnanalyzedLeads: (searchId) => stmts.getUnanalyzedLeads.all(searchId),
-  markContacted: (id, contacted) => stmts.markContacted.run(contacted ? 1 : 0, id),
-  updateNotes: (id, notes) => stmts.updateNotes.run(notes, id),
-  deleteSearch: (id) => {
-    stmts.deleteLeadsBySearch.run(id);
-    stmts.deleteSearch.run(id);
+  getUnanalyzedLeads: (sid) => stmts.getUnanalyzedLeads.all(sid),
+  markContacted: (id, c) => stmts.markContacted.run(c ? 1 : 0, id),
+  updateNotes: (id, n) => stmts.updateNotes.run(n, id),
+  // Funnel
+  getDealsByStage: () => stmts.getDealsByStage.all(),
+  getStageStats: () => stmts.getStageStats.all(),
+  // Templates
+  getTemplates: () => stmts.getTemplates.all(),
+  getTemplate: (id) => stmts.getTemplate.get(id),
+  addTemplate: (t) => stmts.insertTemplate.run(t.name, t.type || 'email', t.subject || null, t.body, t.enabled !== false ? 1 : 0).lastInsertRowid,
+  updateTemplate: (id, t) => stmts.updateTemplate.run(t.name, t.type || 'email', t.subject || null, t.body, t.enabled !== false ? 1 : 0, id),
+  deleteTemplate: (id) => stmts.deleteTemplate.run(id),
+  // Sequences
+  getSequences: () => stmts.getSequences.all(),
+  getSequence: (id) => stmts.getSequence.get(id),
+  addSequence: (s) => stmts.insertSequence.run(s.name, s.description || '', s.trigger_stage || 'contacted', s.enabled !== false ? 1 : 0).lastInsertRowid,
+  updateSequence: (id, s) => stmts.updateSequence.run(s.name, s.description || '', s.trigger_stage || 'contacted', s.enabled !== false ? 1 : 0, id),
+  deleteSequence: (id) => stmts.deleteSequence.run(id),
+  getSequenceSteps: (id) => stmts.getSequenceSteps.all(id),
+  setSequenceSteps: (id, steps) => {
+    stmts.deleteSequenceSteps.run(id);
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      stmts.insertSequenceStep.run(id, i + 1, s.template_id, s.delay_days || 0, s.require_approval !== false ? 1 : 0);
+    }
   },
+  // Campaigns
+  startLeadCampaign: (leadId, seqId) => stmts.startLeadCampaign.run(leadId, seqId),
+  getActiveCampaigns: () => stmts.getActiveCampaigns.all(),
+  getLeadCampaigns: (id) => stmts.getLeadCampaigns.all(id),
+  advanceCampaign: (id) => stmts.advanceCampaign.run(id),
+  completeCampaign: (id) => stmts.completeCampaign.run(id),
+  // Pending
+  addPendingAction: (a) => stmts.insertPendingAction.run(a.lead_id, a.campaign_id || null, a.step_id || null, a.type, a.template_id || null, a.rendered_subject || null, a.rendered_body, a.recipient || null, a.scheduled_for || new Date().toISOString()),
+  getPendingActions: () => stmts.getPendingActions.all(),
+  getPendingAction: (id) => stmts.getPendingAction.get(id),
+  updatePendingActionStatus: (id, s) => stmts.updatePendingActionStatus.run(s, id),
+  countPendingActions: () => stmts.countPendingActions.get().c,
+  // Communications
+  logCommunication: (c) => stmts.insertCommunication.run(c.lead_id, c.type, c.direction || 'outbound', c.subject || null, c.body || null, c.recipient || null, c.status || 'sent', c.error || null),
+  getLeadCommunications: (id) => stmts.getLeadCommunications.all(id),
+  // Projects
+  getProjects: () => stmts.getProjects.all(),
+  addProject: (p) => stmts.insertProject.run(p.lead_id || null, p.name, p.status || 'planning', p.notes || ''),
+  updateProject: (id, p) => stmts.updateProject.run(p.name, p.status, p.notes, id),
+  deleteProject: (id) => stmts.deleteProject.run(id),
+  // Stats
   getDashboardStats: () => stmts.getDashboardStats.get(),
+  getSearches: () => stmts.getSearches.all(),
+  deleteSearch: (id) => { stmts.deleteLeadsBySearch.run(id); stmts.deleteSearch.run(id); },
 };

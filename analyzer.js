@@ -5,7 +5,6 @@ const cheerio = require('cheerio');
 const PAGESPEED_API_KEY = process.env.PAGESPEED_API_KEY || '';
 const ANALYSIS_TIMEOUT = 25000;
 
-// CMS fingerprints — modern = bestaande site, dus minder kans op vervanging
 const CMS_FINGERPRINTS = [
   { name: 'WordPress', test: ($, html, h) =>
       html.includes('/wp-content/') || html.includes('/wp-includes/') ||
@@ -33,9 +32,7 @@ function detectTechStack($, html) {
     stack.push(`jQuery ${jq[1]}.${jq[2]}.${jq[3]}`);
     if (major < 2) stack.push('OUTDATED:jQuery 1.x');
     else if (major === 2) stack.push('OUTDATED:jQuery 2.x');
-  } else if (/jquery/i.test(html)) {
-    stack.push('jQuery (versie onbekend)');
-  }
+  } else if (/jquery/i.test(html)) stack.push('jQuery (versie onbekend)');
   if (/<frameset|<frame /i.test(html)) stack.push('OUTDATED:Frames');
   if (/\.swf|application\/x-shockwave-flash/i.test(html)) stack.push('OUTDATED:Flash');
   if (/<marquee|<blink/i.test(html)) stack.push('OUTDATED:Marquee/Blink tags');
@@ -65,26 +62,21 @@ function isTableBasedLayout($) {
   return layoutTables >= 1;
 }
 
-// Email harvesting — pakt contactadressen van homepage + contact page
 async function scrapeEmails(baseUrl, $homepage, html) {
   const emails = new Set();
   const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-
-  // Pak emails uit homepage HTML
   const homepageEmails = (html.match(emailRegex) || [])
     .filter(e => !e.endsWith('.png') && !e.endsWith('.jpg') && !e.endsWith('.svg'))
     .filter(e => !e.includes('example.com') && !e.includes('your-email'))
     .filter(e => !e.includes('sentry.io') && !e.includes('wixpress.com'));
   homepageEmails.forEach(e => emails.add(e.toLowerCase()));
 
-  // Pak mailto: links
   $homepage('a[href^="mailto:"]').each((_, el) => {
     const href = $homepage(el).attr('href') || '';
     const m = href.replace(/^mailto:/, '').split('?')[0];
     if (m && emailRegex.test(m)) emails.add(m.toLowerCase());
   });
 
-  // Probeer ook contact pagina als we minder dan 1 email hebben
   if (emails.size === 0) {
     const contactLinks = [];
     $homepage('a[href]').each((_, el) => {
@@ -97,13 +89,10 @@ async function scrapeEmails(baseUrl, $homepage, html) {
         } catch (_) {}
       }
     });
-
-    // Probeer eerste 1 contact link
     for (const link of contactLinks.slice(0, 1)) {
       try {
         const resp = await axios.get(link, {
-          timeout: 10000,
-          maxRedirects: 3,
+          timeout: 10000, maxRedirects: 3,
           headers: { 'User-Agent': 'Mozilla/5.0' },
         });
         const html2 = resp.data || '';
@@ -111,10 +100,9 @@ async function scrapeEmails(baseUrl, $homepage, html) {
           .filter(e => !e.endsWith('.png') && !e.endsWith('.jpg'));
         found.forEach(e => emails.add(e.toLowerCase()));
         if (emails.size > 0) break;
-      } catch (_) { /* skip */ }
+      } catch (_) {}
     }
   }
-
   return [...emails].slice(0, 5);
 }
 
@@ -134,8 +122,7 @@ async function analyzeWebsite(rawUrl) {
   let response;
   try {
     response = await axios.get(url, {
-      timeout: ANALYSIS_TIMEOUT,
-      maxRedirects: 5,
+      timeout: ANALYSIS_TIMEOUT, maxRedirects: 5,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -177,13 +164,11 @@ async function analyzeWebsite(rawUrl) {
 
   const $ = cheerio.load(html);
 
-  // Viewport
   const viewport = $('meta[name="viewport"]').attr('content');
   result.has_viewport_meta = !!viewport;
   if (!viewport) result.issues.push('Geen viewport meta tag (niet mobiel-vriendelijk)');
   else result.is_mobile_friendly = true;
 
-  // CMS detectie
   for (const fp of CMS_FINGERPRINTS) {
     if (fp.test($, html, response.headers)) {
       result.has_cms = true;
@@ -194,24 +179,19 @@ async function analyzeWebsite(rawUrl) {
   }
   if (!result.has_cms) result.issues.push('Geen CMS gedetecteerd (handgeschreven HTML)');
 
-  // Open Graph
   result.has_open_graph = $('meta[property^="og:"]').length > 0;
   if (!result.has_open_graph) result.issues.push('Geen Open Graph tags (slechte social SEO)');
 
-  // Tech stack
   result.tech_stack = detectTechStack($, html);
   for (const o of result.tech_stack.filter(t => t.startsWith('OUTDATED:'))) {
     result.issues.push(`Verouderde tech: ${o.replace('OUTDATED:', '')}`);
   }
 
-  // Table layout
   if (isTableBasedLayout($)) result.issues.push('Table-based layout (oude HTML structuur)');
 
-  // Inline styles
   const inlineCount = $('[style]').length;
-  if (inlineCount > 30) result.issues.push(`Veel inline styles (${inlineCount}) — slechte code`);
+  if (inlineCount > 30) result.issues.push(`Veel inline styles (${inlineCount})`);
 
-  // Copyright jaar
   const bodyText = $('body').text();
   const copyMatches = [...bodyText.matchAll(/(?:©|&copy;|copyright)[^\d]*(\d{4})/gi)];
   if (copyMatches.length > 0) {
@@ -219,52 +199,34 @@ async function analyzeWebsite(rawUrl) {
     if (years.length > 0) {
       result.copyright_year = Math.max(...years);
       const cy = new Date().getFullYear();
-      if (result.copyright_year < cy - 4) result.issues.push(`Copyright jaar ${result.copyright_year} (4+ jaar oud)`);
-      else if (result.copyright_year < cy - 2) result.issues.push(`Copyright jaar ${result.copyright_year} (verouderd)`);
+      if (result.copyright_year < cy - 4) result.issues.push(`Copyright ${result.copyright_year} (4+ jaar oud)`);
+      else if (result.copyright_year < cy - 2) result.issues.push(`Copyright ${result.copyright_year} (verouderd)`);
     }
   } else {
-    // Geen copyright = verdacht
-    if ($('footer').length === 0) result.issues.push('Geen footer (basale site structuur ontbreekt)');
+    if ($('footer').length === 0) result.issues.push('Geen footer (basale structuur ontbreekt)');
   }
 
-  // Comic Sans
-  if (/comic sans/i.test(html)) result.issues.push('Gebruikt Comic Sans (oude stijl)');
-
-  // Favicon
+  if (/comic sans/i.test(html)) result.issues.push('Gebruikt Comic Sans');
   if ($('link[rel*="icon"]').length === 0) result.issues.push('Geen favicon');
-
-  // Meta description
   if (!$('meta[name="description"]').attr('content')) result.issues.push('Geen meta description');
 
-  // Alt tags
   const imgs = $('img');
   const noAlt = imgs.filter((_, el) => !$(el).attr('alt')).length;
-  if (imgs.length > 5 && noAlt / imgs.length > 0.5) {
-    result.issues.push('Meeste afbeeldingen zonder alt tekst');
-  }
+  if (imgs.length > 5 && noAlt / imgs.length > 0.5) result.issues.push('Meeste afbeeldingen zonder alt tekst');
 
-  // Responsive images
   const responsive = $('img[srcset], picture source').length;
-  if (imgs.length > 5 && responsive === 0) {
-    result.issues.push('Geen responsive afbeeldingen (srcset/picture)');
-  }
+  if (imgs.length > 5 && responsive === 0) result.issues.push('Geen responsive afbeeldingen');
 
-  // Veel kleine afbeeldingen ipv 1 hero
-  if (imgs.length > 30) result.issues.push(`Veel afbeeldingen (${imgs.length}) — mogelijk slecht geoptimaliseerd`);
+  if (imgs.length > 30) result.issues.push(`Veel afbeeldingen (${imgs.length})`);
 
-  // Geen CTA / contactformulier
   const hasContactForm = $('form').filter((_, el) => {
     const txt = $(el).text().toLowerCase();
     return /contact|bericht|aanvraag|vraag|offerte/.test(txt);
   }).length > 0;
   if (!hasContactForm) result.issues.push('Geen contactformulier op homepage');
 
-  // Email scraping
-  try {
-    result.emails = await scrapeEmails(result.url, $, html);
-  } catch (e) { /* skip */ }
+  try { result.emails = await scrapeEmails(result.url, $, html); } catch (e) {}
 
-  // PageSpeed (optioneel)
   if (PAGESPEED_API_KEY) {
     try {
       const ps = await axios.get(
@@ -277,7 +239,7 @@ async function analyzeWebsite(rawUrl) {
         if (result.pagespeed_score < 30) result.issues.push(`Zeer slechte PageSpeed (${result.pagespeed_score}/100)`);
         else if (result.pagespeed_score < 50) result.issues.push(`Slechte PageSpeed (${result.pagespeed_score}/100)`);
       }
-    } catch (e) { /* skip */ }
+    } catch (e) {}
   }
 
   result.replacement_score = calculateReplacementScore(result);
@@ -287,25 +249,23 @@ async function analyzeWebsite(rawUrl) {
 function calculateReplacementScore(r) {
   let score = 0;
 
-  // Mobile = absolute essential anno 2026, hoogste weging
+  // Mobile = absolute essential anno 2026
   if (!r.is_mobile_friendly) score += 30;
 
   // HTTPS
   if (!r.has_https) score += 20;
 
-  // CMS — modern CMS = vrij waarschijnlijk al onderhouden, dus aftrekken
-  if (r.has_cms && r.cms_type && !r.cms_type.includes('legacy') && !r.cms_type.includes('FrontPage') && !r.cms_type.includes('Dreamweaver')) {
-    // Modern CMS, verlaag score want zit waarschijnlijk al goed
+  // CMS handling
+  if (r.has_cms && r.cms_type && !r.cms_type.includes('legacy')) {
+    // Modern CMS: minder kans op vervanging
   } else if (!r.has_cms) {
-    score += 18; // handmatige HTML = waarschijnlijk oud
+    score += 18;
   } else {
     score += 25; // FrontPage etc.
   }
 
-  // Open Graph = moderne site indicator
   if (!r.has_open_graph) score += 5;
 
-  // Copyright jaar
   if (r.copyright_year) {
     const yearsOld = new Date().getFullYear() - r.copyright_year;
     if (yearsOld >= 6) score += 14;
@@ -313,18 +273,15 @@ function calculateReplacementScore(r) {
     else if (yearsOld >= 2) score += 5;
   }
 
-  // PageSpeed
   if (r.pagespeed_score !== null) {
     if (r.pagespeed_score < 25) score += 18;
     else if (r.pagespeed_score < 45) score += 12;
     else if (r.pagespeed_score < 65) score += 6;
   }
 
-  // Outdated tech (per item)
   const outdated = (r.tech_stack || []).filter(t => t.startsWith('OUTDATED:')).length;
   score += outdated * 6;
 
-  // Issues count (algemeen)
   score += Math.min(r.issues.length * 1.2, 12);
 
   return Math.min(Math.round(score), 100);
