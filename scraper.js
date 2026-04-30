@@ -1,16 +1,18 @@
-// scraper.js - Google Maps scraper met Puppeteer
+// scraper.js - Google Maps scraper met block detection
 const puppeteer = require('puppeteer');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const rand = (min, max) => Math.floor(Math.random() * (max - min)) + min;
 
-/**
- * Scrape Google Maps voor bedrijven op basis van zoekopdracht
- * @param {string} query - bv "kozijnbedrijf"
- * @param {string} location - bv "Rotterdam"
- * @param {number} maxResults - maximum aantal resultaten
- * @param {function} onProgress - callback voor progress updates
- */
-async function scrapeGoogleMaps(query, location, maxResults = 50, onProgress = () => {}) {
+class GoogleBlockedError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'GoogleBlockedError';
+    this.isBlock = true;
+  }
+}
+
+async function scrapeGoogleMaps(query, location, maxResults = 40, onProgress = () => {}) {
   const fullQuery = location ? `${query} in ${location}` : query;
   const url = `https://www.google.com/maps/search/${encodeURIComponent(fullQuery)}`;
 
@@ -21,6 +23,7 @@ async function scrapeGoogleMaps(query, location, maxResults = 50, onProgress = (
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
       '--lang=nl-NL,nl',
     ],
     defaultViewport: { width: 1280, height: 900 },
@@ -36,86 +39,97 @@ async function scrapeGoogleMaps(query, location, maxResults = 50, onProgress = (
     onProgress({ stage: 'navigating', message: 'Google Maps openen...' });
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // Cookie consent (Google EU)
+    // Check for block / captcha
+    const blocked = await detectBlock(page);
+    if (blocked) {
+      throw new GoogleBlockedError(`Google block detected: ${blocked}`);
+    }
+
+    // Cookie consent
     try {
-      const consentBtn = await page.waitForSelector(
+      const consent = await page.waitForSelector(
         'button[aria-label*="Alles accepteren"], button[aria-label*="Accept all"], form[action*="consent"] button',
         { timeout: 5000 }
       );
-      if (consentBtn) {
-        await consentBtn.click();
+      if (consent) {
+        await consent.click();
         await sleep(2000);
       }
-    } catch (_) { /* geen consent popup */ }
+    } catch (_) {}
 
-    // Wacht op resultaten lijst
-    await page.waitForSelector('div[role="feed"], div[aria-label*="Resultaten"], div[aria-label*="Results"]', {
-      timeout: 30000,
-    });
+    // Wacht op feed
+    try {
+      await page.waitForSelector('div[role="feed"]', { timeout: 30000 });
+    } catch (err) {
+      // Mogelijk geen resultaten
+      const noResults = await page.evaluate(() =>
+        document.body.innerText.toLowerCase().includes('geen resultaten') ||
+        document.body.innerText.toLowerCase().includes('no results')
+      );
+      if (noResults) {
+        onProgress({ stage: 'done', message: 'Geen resultaten gevonden', count: 0 });
+        return [];
+      }
+      throw err;
+    }
 
-    onProgress({ stage: 'scrolling', message: 'Resultaten laden door te scrollen...' });
+    onProgress({ stage: 'scrolling', message: 'Resultaten laden...' });
 
-    // Scroll door de lijst tot we genoeg resultaten hebben of einde bereiken
-    const feedSelector = 'div[role="feed"]';
     let lastCount = 0;
-    let stagnantCount = 0;
-
+    let stagnant = 0;
     for (let i = 0; i < 40; i++) {
-      const count = await page.evaluate((sel) => {
-        const feed = document.querySelector(sel);
-        if (!feed) return 0;
-        return feed.querySelectorAll('a[href*="/maps/place/"]').length;
-      }, feedSelector);
+      const count = await page.evaluate(() => {
+        const feed = document.querySelector('div[role="feed"]');
+        return feed ? feed.querySelectorAll('a[href*="/maps/place/"]').length : 0;
+      });
 
-      onProgress({ stage: 'scrolling', message: `${count} bedrijven geladen...`, count });
+      onProgress({ stage: 'scrolling', message: `${count} bedrijven geladen`, count });
 
       if (count >= maxResults) break;
       if (count === lastCount) {
-        stagnantCount++;
-        if (stagnantCount >= 3) break; // einde lijst bereikt
-      } else {
-        stagnantCount = 0;
-      }
+        stagnant++;
+        if (stagnant >= 3) break;
+      } else stagnant = 0;
       lastCount = count;
 
-      await page.evaluate((sel) => {
-        const feed = document.querySelector(sel);
+      await page.evaluate(() => {
+        const feed = document.querySelector('div[role="feed"]');
         if (feed) feed.scrollTop = feed.scrollHeight;
-      }, feedSelector);
-
-      await sleep(1500);
+      });
+      await sleep(rand(1200, 2200));
     }
 
-    onProgress({ stage: 'extracting', message: 'Data extraheren...' });
+    onProgress({ stage: 'extracting', message: 'Details extraheren...' });
 
-    // Verzamel place URLs
     const placeUrls = await page.evaluate((max) => {
       const links = Array.from(document.querySelectorAll('a[href*="/maps/place/"]'));
-      const urls = [...new Set(links.map(a => a.href))];
-      return urls.slice(0, max);
+      return [...new Set(links.map(a => a.href))].slice(0, max);
     }, maxResults);
 
     const results = [];
-
     for (let i = 0; i < placeUrls.length; i++) {
-      const placeUrl = placeUrls[i];
       onProgress({
         stage: 'detail',
-        message: `Detail ${i + 1}/${placeUrls.length} ophalen...`,
+        message: `Detail ${i + 1}/${placeUrls.length}`,
         progress: i + 1,
         total: placeUrls.length,
       });
 
       try {
-        const detail = await scrapePlaceDetail(page, placeUrl);
+        const detail = await scrapePlaceDetail(page, placeUrls[i]);
         if (detail && detail.name) {
+          detail.google_maps_url = placeUrls[i];
+          // Extract city from address
+          detail.city = extractCity(detail.address) || location;
           results.push(detail);
         }
       } catch (err) {
-        console.error(`Fout bij detail ${placeUrl}:`, err.message);
+        console.error(`Detail error: ${err.message}`);
+        // Check of het een block is
+        const block = await detectBlock(page).catch(() => null);
+        if (block) throw new GoogleBlockedError(`Blocked tijdens detail: ${block}`);
       }
-
-      await sleep(800 + Math.random() * 700); // anti-bot jitter
+      await sleep(rand(800, 1800));
     }
 
     onProgress({ stage: 'done', message: `${results.length} bedrijven gevonden`, count: results.length });
@@ -125,54 +139,63 @@ async function scrapeGoogleMaps(query, location, maxResults = 50, onProgress = (
   }
 }
 
+async function detectBlock(page) {
+  try {
+    const indicators = await page.evaluate(() => {
+      const url = window.location.href;
+      const text = document.body?.innerText?.toLowerCase() || '';
+      const checks = {
+        sorry_url: url.includes('/sorry/'),
+        captcha: text.includes('captcha') || text.includes('recaptcha') || !!document.querySelector('#captcha-form'),
+        unusual_traffic: text.includes('unusual traffic') || text.includes('ongewoon verkeer'),
+        verify_human: text.includes('verify you') || text.includes('verifieer dat je geen robot'),
+      };
+      const triggered = Object.entries(checks).filter(([_, v]) => v).map(([k]) => k);
+      return triggered;
+    });
+    if (indicators.length > 0) return indicators.join(', ');
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function scrapePlaceDetail(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-  // Wacht op de detail panel
   await page.waitForSelector('h1', { timeout: 15000 }).catch(() => {});
-  await sleep(1200);
+  await sleep(rand(1000, 1800));
 
   return await page.evaluate(() => {
-    const getText = (selectors) => {
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
+    const getText = (sels) => {
+      for (const s of sels) {
+        const el = document.querySelector(s);
         if (el && el.textContent.trim()) return el.textContent.trim();
       }
       return null;
     };
 
-    const getAttr = (selector, attr) => {
-      const el = document.querySelector(selector);
-      return el ? el.getAttribute(attr) : null;
-    };
-
     const name = getText(['h1.DUwDvf', 'h1']);
-
-    // Address, phone, website via aria-labels (taalonafhankelijk via icoon-classes)
     const buttons = Array.from(document.querySelectorAll('button[data-item-id], a[data-item-id]'));
     let address = null, phone = null, website = null;
 
     for (const btn of buttons) {
       const id = btn.getAttribute('data-item-id') || '';
-      const aria = btn.getAttribute('aria-label') || '';
+      const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
       const text = btn.textContent.trim();
-
-      if (id === 'address' || aria.toLowerCase().includes('adres') || aria.toLowerCase().includes('address')) {
+      if (id === 'address' || aria.includes('adres') || aria.includes('address')) {
         address = text.replace(/^Adres:\s*/i, '').replace(/^Address:\s*/i, '');
-      } else if (id.startsWith('phone') || aria.toLowerCase().includes('telefoon') || aria.toLowerCase().includes('phone')) {
+      } else if (id.startsWith('phone') || aria.includes('telefoon') || aria.includes('phone')) {
         phone = text.replace(/^Telefoon:\s*/i, '').replace(/^Phone:\s*/i, '');
-      } else if (id === 'authority' || aria.toLowerCase().includes('website')) {
-        website = btn.getAttribute('href') || text;
+      } else if (id === 'authority' || aria.includes('website')) {
+        website = btn.getAttribute('href') || (text.startsWith('http') ? text : null);
       }
     }
 
-    // Fallback: zoek expliciete website link
     if (!website) {
-      const wsLink = document.querySelector('a[data-item-id="authority"]');
-      if (wsLink) website = wsLink.href;
+      const ws = document.querySelector('a[data-item-id="authority"]');
+      if (ws) website = ws.href;
     }
 
-    // Rating
     let rating = null, reviewCount = null;
     const ratingEl = document.querySelector('div.F7nice span[aria-hidden="true"]');
     if (ratingEl) {
@@ -185,21 +208,30 @@ async function scrapePlaceDetail(page, url) {
       if (m) reviewCount = parseInt(m[0].replace(/[.,]/g, ''));
     }
 
-    // Categorie
     const categoryEl = document.querySelector('button[jsaction*="category"]');
     const category = categoryEl ? categoryEl.textContent.trim() : null;
 
-    return {
-      name,
-      address,
-      phone,
-      website,
-      google_maps_url: window.location.href,
-      rating,
-      review_count: reviewCount,
-      category,
-    };
+    return { name, address, phone, website, rating, review_count: reviewCount, category };
   });
 }
 
-module.exports = { scrapeGoogleMaps };
+/**
+ * Probeer stad uit adres te halen.
+ * Nederlandse adressen: "Straatnaam 12, 1234 AB Stad" → "Stad"
+ */
+function extractCity(address) {
+  if (!address) return null;
+  // Match Nederlandse postcode pattern + stad daarna
+  const nlMatch = address.match(/\b\d{4}\s?[A-Z]{2}\s+([A-Za-zÀ-ÿ\s\-]+?)(?:,|$)/);
+  if (nlMatch) return nlMatch[1].trim();
+  // Fallback: laatste comma-segment
+  const parts = address.split(',').map(s => s.trim());
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1];
+    // Strip postcodes
+    return last.replace(/^\d{4}\s?[A-Z]{2}\s*/, '').trim() || null;
+  }
+  return null;
+}
+
+module.exports = { scrapeGoogleMaps, GoogleBlockedError };

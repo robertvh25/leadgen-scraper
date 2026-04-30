@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lead Hunter — verouderde websites scanner</title>
+  <title>Lead Hunter</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -17,503 +17,286 @@
       --text: #e7e8ec;
       --text-dim: #9095a3;
       --text-faint: #5c6171;
-      --accent: #d4ff3a;        /* limegreen, opvallend */
+      --accent: #d4ff3a;
       --accent-dim: #a8cc2e;
       --warn: #ff7849;
       --danger: #ff4d6d;
       --success: #3ddc97;
       --info: #5fa8ff;
     }
-
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       font-family: 'Geist', -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      font-size: 14px;
-      line-height: 1.5;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; font-size: 14px; line-height: 1.5;
       background-image:
         radial-gradient(circle at 10% 0%, rgba(212, 255, 58, 0.04), transparent 40%),
         radial-gradient(circle at 90% 100%, rgba(95, 168, 255, 0.04), transparent 40%);
     }
-
-    .layout {
-      display: grid;
-      grid-template-columns: 280px 1fr;
-      min-height: 100vh;
-    }
-
-    /* === SIDEBAR === */
+    .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
     .sidebar {
-      background: var(--bg-elev);
-      border-right: 1px solid var(--border);
-      padding: 24px 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
+      background: var(--bg-elev); border-right: 1px solid var(--border);
+      padding: 24px 16px; display: flex; flex-direction: column; gap: 8px;
     }
-
     .logo {
-      font-family: 'Instrument Serif', serif;
-      font-size: 28px;
-      font-style: italic;
-      letter-spacing: -0.5px;
+      font-family: 'Instrument Serif', serif; font-size: 28px;
+      font-style: italic; letter-spacing: -0.5px; margin-bottom: 16px; padding: 0 8px;
     }
-    .logo span { color: var(--accent); font-style: normal; font-family: 'JetBrains Mono', monospace; font-size: 22px; }
+    .logo span {
+      color: var(--accent); font-style: normal;
+      font-family: 'JetBrains Mono', monospace; font-size: 22px;
+    }
+    .nav-item {
+      padding: 9px 12px; border-radius: 7px; cursor: pointer;
+      color: var(--text-dim); transition: all 0.15s; font-weight: 500;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .nav-item:hover { background: var(--bg-elev-2); color: var(--text); }
+    .nav-item.active {
+      background: var(--bg-elev-2); color: var(--text);
+      border-left: 3px solid var(--accent); padding-left: 9px;
+    }
+    .nav-item .badge {
+      margin-left: auto; background: var(--bg); padding: 2px 7px;
+      border-radius: 3px; font-size: 10px; font-family: 'JetBrains Mono', monospace;
+    }
+    .nav-item .badge.accent { background: rgba(212,255,58,0.15); color: var(--accent); }
+    .autopilot-card {
+      margin-top: auto; background: var(--bg-elev-2); border: 1px solid var(--border);
+      padding: 14px; border-radius: 10px;
+    }
+    .ap-status {
+      display: flex; align-items: center; gap: 8px; font-size: 12px;
+      color: var(--text-dim); margin-bottom: 10px;
+    }
+    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+    .pulse-dot.on { background: var(--accent); animation: pulse 1.5s infinite; }
+    .pulse-dot.error { background: var(--danger); }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .toggle-switch {
+      position: relative; display: inline-block; width: 36px; height: 20px;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: var(--border); border-radius: 20px; transition: 0.2s;
+    }
+    .slider:before {
+      content: ""; position: absolute; height: 14px; width: 14px;
+      left: 3px; bottom: 3px; background: white;
+      border-radius: 50%; transition: 0.2s;
+    }
+    input:checked + .slider { background: var(--accent); }
+    input:checked + .slider:before { transform: translateX(16px); background: #0a0b0d; }
 
-    .new-search-form {
-      background: var(--bg-elev-2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
+    .main { padding: 24px 32px 80px; overflow-x: hidden; }
+    .view { display: none; }
+    .view.active { display: block; }
 
-    .new-search-form h3 {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: var(--text-faint);
-      margin-bottom: 4px;
+    h1 {
+      font-family: 'Instrument Serif', serif; font-size: 32px;
+      font-weight: 400; line-height: 1.2; margin-bottom: 4px;
     }
+    h2 {
+      font-family: 'Instrument Serif', serif; font-size: 22px;
+      font-weight: 400; margin-bottom: 12px; margin-top: 24px;
+    }
+    .header-meta { color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
 
-    label {
-      display: block;
-      font-size: 11px;
-      color: var(--text-dim);
-      margin-bottom: 4px;
-      font-weight: 500;
-    }
-
-    input, select, textarea, button {
-      font-family: inherit;
-      font-size: 13px;
-    }
-
-    input[type="text"], input[type="number"] {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 9px 12px;
-      border-radius: 7px;
-      transition: border-color 0.15s;
-    }
-
-    input[type="text"]:focus, input[type="number"]:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    button {
-      cursor: pointer;
-      background: var(--accent);
-      color: #0a0b0d;
-      border: none;
-      padding: 10px 14px;
-      border-radius: 7px;
-      font-weight: 600;
-      letter-spacing: 0.2px;
-      transition: all 0.15s;
-    }
-
-    button:hover:not(:disabled) {
-      background: var(--accent-dim);
-      transform: translateY(-1px);
-    }
-
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    button.secondary {
-      background: var(--bg-elev-2);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    button.secondary:hover:not(:disabled) {
-      background: var(--border);
-    }
-
-    button.danger { background: var(--danger); color: white; }
-    button.tiny { padding: 4px 8px; font-size: 11px; }
-
-    .searches-list {
-      flex: 1;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .search-item {
-      padding: 10px 12px;
-      border-radius: 7px;
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all 0.15s;
-    }
-    .search-item:hover { background: var(--bg-elev-2); }
-    .search-item.active {
-      background: var(--bg-elev-2);
-      border-color: var(--accent);
-    }
-
-    .search-item-title {
-      font-weight: 500;
-      font-size: 13px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .search-item-meta {
-      font-size: 11px;
-      color: var(--text-faint);
-      margin-top: 2px;
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .status-badge {
-      display: inline-block;
-      padding: 1px 6px;
-      border-radius: 3px;
-      font-size: 9px;
-      font-family: 'JetBrains Mono', monospace;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-left: 4px;
-    }
-    .status-badge.running { background: rgba(95, 168, 255, 0.15); color: var(--info); }
-    .status-badge.analyzing { background: rgba(212, 255, 58, 0.15); color: var(--accent); }
-    .status-badge.done { background: rgba(61, 220, 151, 0.15); color: var(--success); }
-    .status-badge.error { background: rgba(255, 77, 109, 0.15); color: var(--danger); }
-
-    /* === MAIN === */
-    .main {
-      padding: 24px 32px 80px;
-      overflow-x: hidden;
-    }
-
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .header h1 {
-      font-family: 'Instrument Serif', serif;
-      font-size: 32px;
-      font-weight: 400;
-      line-height: 1.2;
-    }
-
-    .header-meta {
-      color: var(--text-dim);
-      font-size: 13px;
-      margin-top: 4px;
-    }
-
-    .header-actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    /* Progress bar */
-    .progress-card {
-      background: var(--bg-elev);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px 20px;
-      margin-bottom: 20px;
-    }
-
-    .progress-card.idle { display: none; }
-
-    .progress-line {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      color: var(--text-dim);
-    }
-
-    .pulse-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: var(--accent);
-      animation: pulse 1.2s infinite ease-in-out;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
-
-    .progress-bar {
-      width: 100%;
-      height: 4px;
-      background: var(--border);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 10px;
-    }
-    .progress-fill {
-      height: 100%;
-      background: var(--accent);
-      transition: width 0.3s ease;
-      width: 0%;
-    }
-
-    /* Stats */
+    /* Stats grid */
     .stats {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-      margin-bottom: 20px;
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 12px; margin-bottom: 24px;
     }
-
     .stat {
-      background: var(--bg-elev);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px 18px;
+      background: var(--bg-elev); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 18px;
     }
     .stat-label {
-      font-size: 10px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: var(--text-faint);
-      margin-bottom: 6px;
+      font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+      color: var(--text-faint); margin-bottom: 6px;
     }
     .stat-value {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 24px;
-      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 600;
     }
     .stat-value.accent { color: var(--accent); }
     .stat-value.warn { color: var(--warn); }
+    .stat-value.success { color: var(--success); }
 
-    /* Filter bar */
-    .filter-bar {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-      align-items: center;
+    /* Buttons */
+    button, input, select, textarea { font-family: inherit; font-size: 13px; }
+    button {
+      cursor: pointer; background: var(--accent); color: #0a0b0d;
+      border: none; padding: 9px 14px; border-radius: 7px;
+      font-weight: 600; transition: all 0.15s;
+    }
+    button:hover:not(:disabled) { background: var(--accent-dim); transform: translateY(-1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary {
+      background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
+    }
+    button.secondary:hover:not(:disabled) { background: var(--border); }
+    button.danger { background: var(--danger); color: white; }
+    button.tiny { padding: 4px 8px; font-size: 11px; }
+    button.full { width: 100%; }
+
+    input[type="text"], input[type="number"], select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); padding: 9px 12px; border-radius: 7px;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+    label.field {
+      display: block; font-size: 11px; color: var(--text-dim);
+      margin-bottom: 4px; font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.5px;
     }
 
-    .filter-bar input { width: auto; flex: 1; min-width: 200px; }
+    /* Lead card */
+    .filter-bar {
+      display: flex; gap: 8px; margin-bottom: 16px;
+      flex-wrap: wrap; align-items: center;
+    }
+    .filter-bar input, .filter-bar select { width: auto; flex: 0 1 auto; }
+    .filter-bar input[type="text"] { min-width: 200px; flex: 1; }
 
     .chip {
-      background: var(--bg-elev-2);
-      border: 1px solid var(--border);
-      color: var(--text-dim);
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.15s;
+      background: var(--bg-elev-2); border: 1px solid var(--border);
+      color: var(--text-dim); padding: 6px 10px; border-radius: 6px;
+      font-size: 12px; cursor: pointer; transition: all 0.15s;
     }
     .chip.active {
-      background: var(--accent);
-      color: #0a0b0d;
-      border-color: var(--accent);
-      font-weight: 600;
+      background: var(--accent); color: #0a0b0d;
+      border-color: var(--accent); font-weight: 600;
     }
     .chip:hover:not(.active) { border-color: var(--text-dim); }
 
-    /* Lead card */
-    .leads-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
+    .leads-grid { display: flex; flex-direction: column; gap: 10px; }
     .lead {
-      background: var(--bg-elev);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      overflow: hidden;
-      transition: border-color 0.15s;
+      background: var(--bg-elev); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden; transition: border-color 0.15s;
     }
-    .lead:hover { border-color: var(--border); }
     .lead.high-score { border-left: 3px solid var(--accent); }
     .lead.contacted { opacity: 0.55; }
-
     .lead-row {
-      display: grid;
-      grid-template-columns: 70px 1fr 240px 120px;
-      align-items: center;
-      gap: 16px;
-      padding: 14px 18px;
-      cursor: pointer;
+      display: grid; grid-template-columns: 70px 1fr 220px 120px;
+      align-items: center; gap: 16px; padding: 14px 18px; cursor: pointer;
     }
-
     .score-circle {
-      position: relative;
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 16px;
-      font-weight: 600;
-      flex-shrink: 0;
+      width: 50px; height: 50px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'JetBrains Mono', monospace; font-size: 16px;
+      font-weight: 600; flex-shrink: 0;
     }
-    .score-circle.high { background: rgba(212, 255, 58, 0.15); color: var(--accent); }
-    .score-circle.med { background: rgba(255, 120, 73, 0.15); color: var(--warn); }
-    .score-circle.low { background: rgba(95, 168, 255, 0.1); color: var(--info); }
+    .score-circle.high { background: rgba(212,255,58,0.15); color: var(--accent); }
+    .score-circle.med { background: rgba(255,120,73,0.15); color: var(--warn); }
+    .score-circle.low { background: rgba(95,168,255,0.1); color: var(--info); }
     .score-circle.none { background: var(--bg-elev-2); color: var(--text-faint); }
 
-    .lead-info h4 {
-      font-size: 15px;
-      font-weight: 500;
-      margin-bottom: 3px;
-    }
+    .lead-info h4 { font-size: 15px; font-weight: 500; margin-bottom: 3px; }
     .lead-info .meta {
-      font-size: 11px;
-      color: var(--text-faint);
+      font-size: 11px; color: var(--text-faint);
       font-family: 'JetBrains Mono', monospace;
     }
     .lead-info .website-line {
-      font-size: 12px;
-      color: var(--text-dim);
-      margin-top: 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
+      font-size: 12px; color: var(--text-dim); margin-top: 4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
     }
-
     .lead-issues {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      max-height: 50px;
-      overflow: hidden;
+      display: flex; flex-wrap: wrap; gap: 4px; max-height: 50px; overflow: hidden;
     }
     .issue-tag {
-      background: rgba(255, 77, 109, 0.1);
-      color: var(--danger);
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 3px;
-      white-space: nowrap;
+      background: rgba(255,77,109,0.1); color: var(--danger);
+      font-size: 10px; padding: 2px 6px; border-radius: 3px; white-space: nowrap;
     }
-    .issue-tag.warn { background: rgba(255, 120, 73, 0.1); color: var(--warn); }
+    .issue-tag.warn { background: rgba(255,120,73,0.1); color: var(--warn); }
+    .issue-tag.info { background: rgba(95,168,255,0.1); color: var(--info); }
 
     .lead-actions {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      align-items: flex-end;
+      display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
     }
-
-    /* Detail panel */
-    .lead-detail {
-      padding: 0 18px 16px;
-      display: none;
-      border-top: 1px solid var(--border-soft);
-      padding-top: 14px;
-    }
+    .lead-detail { padding: 0 18px 16px; display: none; border-top: 1px solid var(--border-soft); padding-top: 14px; }
     .lead.expanded .lead-detail { display: block; }
-
     .detail-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 12px;
-      margin-bottom: 12px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px; margin-bottom: 12px;
     }
-
     .detail-item {
-      background: var(--bg-elev-2);
-      padding: 8px 12px;
-      border-radius: 6px;
+      background: var(--bg-elev-2); padding: 8px 12px; border-radius: 6px;
     }
     .detail-item label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
       color: var(--text-faint);
     }
     .detail-item .val {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      color: var(--text);
-      margin-top: 3px;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      color: var(--text); margin-top: 3px;
     }
     .detail-item .val.green { color: var(--success); }
     .detail-item .val.red { color: var(--danger); }
-
-    .all-issues {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      margin: 8px 0;
-    }
-    .all-issues .issue-tag {
-      align-self: flex-start;
-      font-size: 11px;
-      padding: 4px 8px;
-    }
-
+    .all-issues { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+    .all-issues .issue-tag { align-self: flex-start; font-size: 11px; padding: 4px 8px; }
     .notes-input {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 8px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-family: inherit;
-      resize: vertical;
-      min-height: 50px;
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); padding: 8px 10px; border-radius: 6px;
+      font-size: 12px; font-family: inherit; resize: vertical; min-height: 50px;
     }
-
     .empty {
-      text-align: center;
-      padding: 60px 20px;
-      color: var(--text-faint);
+      text-align: center; padding: 60px 20px; color: var(--text-faint);
     }
     .empty h3 {
-      font-family: 'Instrument Serif', serif;
-      font-size: 24px;
-      font-style: italic;
-      margin-bottom: 8px;
-      color: var(--text-dim);
+      font-family: 'Instrument Serif', serif; font-size: 24px;
+      font-style: italic; margin-bottom: 8px; color: var(--text-dim);
     }
-
     a { color: var(--info); text-decoration: none; }
     a:hover { text-decoration: underline; }
-
     .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--text-dim);
-      cursor: pointer;
+      display: flex; align-items: center; gap: 6px; font-size: 12px;
+      color: var(--text-dim); cursor: pointer;
     }
+
+    /* List management (branches/cities) */
+    .list-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px; margin-top: 16px;
+    }
+    .list-item {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg-elev); border: 1px solid var(--border);
+      padding: 10px 12px; border-radius: 7px;
+    }
+    .list-item.disabled { opacity: 0.5; }
+    .list-item .name { flex: 1; font-size: 13px; }
+    .list-item .actions { display: flex; gap: 4px; }
+    .add-row { display: flex; gap: 8px; max-width: 400px; margin-top: 12px; }
+    .add-row input { flex: 1; }
+
+    /* Settings */
+    .settings-grid {
+      display: grid; gap: 16px; max-width: 600px;
+    }
+    .setting-row {
+      background: var(--bg-elev); border: 1px solid var(--border);
+      padding: 14px 18px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .setting-row .info { flex: 1; }
+    .setting-row .info-title { font-weight: 500; margin-bottom: 2px; }
+    .setting-row .info-desc { font-size: 12px; color: var(--text-faint); }
+    .setting-row .control { flex-shrink: 0; }
+    .setting-row .control input[type="number"] { width: 80px; }
+    .setting-row .control select { width: 140px; }
 
     .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: var(--bg-elev);
-      border: 1px solid var(--border);
-      padding: 12px 18px;
-      border-radius: 8px;
-      font-size: 13px;
-      animation: slideIn 0.2s ease;
-      z-index: 100;
+      position: fixed; bottom: 20px; right: 20px;
+      background: var(--bg-elev); border: 1px solid var(--border);
+      padding: 12px 18px; border-radius: 8px; font-size: 13px;
+      animation: slideIn 0.2s ease; z-index: 100;
     }
-    @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes slideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
 
     @media (max-width: 900px) {
       .layout { grid-template-columns: 1fr; }
@@ -529,426 +312,222 @@
     <aside class="sidebar">
       <div class="logo">Lead<span>{hunter}</span></div>
 
-      <form class="new-search-form" id="searchForm">
-        <h3>Nieuwe scan</h3>
-        <div>
-          <label>Zoekterm</label>
-          <input type="text" id="query" placeholder="bv. kozijnbedrijf" required>
-        </div>
-        <div>
-          <label>Locatie</label>
-          <input type="text" id="location" placeholder="bv. Rotterdam">
-        </div>
-        <div>
-          <label>Aantal resultaten</label>
-          <input type="number" id="maxResults" value="30" min="5" max="120">
-        </div>
-        <label class="checkbox-label">
-          <input type="checkbox" id="autoAnalyze" checked> Direct analyseren
-        </label>
-        <button type="submit" id="searchBtn">Start scan →</button>
-      </form>
+      <div class="nav-item active" data-view="dashboard">📊 Dashboard</div>
+      <div class="nav-item" data-view="leads">🎯 Leads <span class="badge accent" id="navHighScore">0</span></div>
+      <div class="nav-item" data-view="branches">🏗️ Branches</div>
+      <div class="nav-item" data-view="cities">🌍 Steden</div>
+      <div class="nav-item" data-view="settings">⚙️ Instellingen</div>
 
-      <div>
-        <h3 style="font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px;">
-          Geschiedenis
-        </h3>
-        <div class="searches-list" id="searchesList"></div>
+      <div class="autopilot-card">
+        <div class="ap-status">
+          <span class="pulse-dot" id="apDot"></span>
+          <span id="apLabel">Auto-pilot uit</span>
+        </div>
+        <label class="toggle-switch" style="display:block; margin-bottom:8px;">
+          <input type="checkbox" id="apToggle">
+          <span class="slider"></span>
+        </label>
+        <div style="font-size:11px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace;" id="apMeta">
+          —
+        </div>
       </div>
     </aside>
 
     <main class="main">
-      <div id="emptyState" class="empty">
-        <h3>nog geen scans gedraaid</h3>
-        <p>start een nieuwe scan in de zijbalk om bedrijven te vinden.</p>
-      </div>
-
-      <div id="contentArea" style="display: none;">
-        <div class="header">
-          <div>
-            <h1 id="searchTitle"></h1>
-            <div class="header-meta" id="searchMeta"></div>
-          </div>
-          <div class="header-actions">
-            <button class="secondary" id="exportBtn">CSV export</button>
-            <button class="secondary danger" id="deleteBtn">Verwijderen</button>
-          </div>
-        </div>
-
-        <div class="progress-card idle" id="progressCard">
-          <div class="progress-line">
-            <span class="pulse-dot"></span>
-            <span id="progressText">Bezig...</span>
-          </div>
-          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-        </div>
+      <!-- DASHBOARD -->
+      <div class="view active" id="view-dashboard">
+        <h1>Dashboard</h1>
+        <div class="header-meta">Overzicht van je lead hunting operatie</div>
 
         <div class="stats">
           <div class="stat">
             <div class="stat-label">Totaal leads</div>
-            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-value" id="dTotal">0</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Met website</div>
-            <div class="stat-value" id="statWebsites">0</div>
+            <div class="stat-label">Score ≥ 60</div>
+            <div class="stat-value accent" id="dHighScore">0</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Hoge score (≥60)</div>
-            <div class="stat-value accent" id="statHigh">0</div>
+            <div class="stat-label">Vandaag binnen</div>
+            <div class="stat-value success" id="dToday">0</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Geen mobiel</div>
-            <div class="stat-value warn" id="statMobile">0</div>
+            <div class="stat-label">Benaderd</div>
+            <div class="stat-value" id="dContacted">0</div>
           </div>
         </div>
+
+        <h2>Auto-pilot status</h2>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">Queue totaal</div>
+            <div class="stat-value" id="dQueueTotal">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Klaar nu</div>
+            <div class="stat-value warn" id="dQueueDue">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Branches actief</div>
+            <div class="stat-value" id="dBranches">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Steden actief</div>
+            <div class="stat-value" id="dCities">0</div>
+          </div>
+        </div>
+
+        <h2>Top kansen vandaag</h2>
+        <div class="leads-grid" id="topLeadsGrid">
+          <div class="empty"><p>Nog geen nieuwe leads vandaag.</p></div>
+        </div>
+
+        <div style="margin-top:20px;">
+          <button class="secondary" id="runNowBtn">▶ Run één scan nu</button>
+        </div>
+      </div>
+
+      <!-- LEADS -->
+      <div class="view" id="view-leads">
+        <h1>Alle leads</h1>
+        <div class="header-meta">Gefilterd overzicht — sorteer op score, filter op alles</div>
 
         <div class="filter-bar">
           <input type="text" id="filterText" placeholder="Filter op naam, adres, issue...">
+          <select id="filterBranch"><option value="">Alle branches</option></select>
+          <select id="filterCity"><option value="">Alle steden</option></select>
           <button class="chip active" data-filter="all">Alles</button>
           <button class="chip" data-filter="high">Score ≥ 60</button>
-          <button class="chip" data-filter="nomobile">Geen mobiel</button>
-          <button class="chip" data-filter="nocms">Geen CMS</button>
-          <button class="chip" data-filter="nohttps">Geen HTTPS</button>
+          <button class="chip" data-filter="vhigh">Score ≥ 80</button>
           <button class="chip" data-filter="uncontacted">Niet benaderd</button>
+          <button class="secondary" id="exportBtn">CSV export</button>
         </div>
 
         <div class="leads-grid" id="leadsGrid"></div>
+      </div>
+
+      <!-- BRANCHES -->
+      <div class="view" id="view-branches">
+        <h1>Branches</h1>
+        <div class="header-meta">Welke zoektermen moet de auto-pilot scrapen?</div>
+        <div class="add-row">
+          <input type="text" id="newBranchInput" placeholder="bv. zonweringspecialist Amsterdam">
+          <button id="addBranchBtn">Toevoegen</button>
+        </div>
+        <div class="list-grid" id="branchesList"></div>
+      </div>
+
+      <!-- CITIES -->
+      <div class="view" id="view-cities">
+        <h1>Steden</h1>
+        <div class="header-meta">Welke steden moet de auto-pilot doorzoeken?</div>
+        <div class="add-row">
+          <input type="text" id="newCityInput" placeholder="bv. Apeldoorn">
+          <button id="addCityBtn">Toevoegen</button>
+        </div>
+        <div class="list-grid" id="citiesList"></div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="view" id="view-settings">
+        <h1>Instellingen</h1>
+        <div class="header-meta">Pas auto-pilot gedrag aan</div>
+
+        <div class="settings-grid">
+          <div class="setting-row">
+            <div class="info">
+              <div class="info-title">Auto-pilot aan/uit</div>
+              <div class="info-desc">Schakel de automatische scraper in</div>
+            </div>
+            <div class="control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="setAutopilot">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info">
+              <div class="info-title">Searches per uur</div>
+              <div class="info-desc">Hoger = sneller, maar grotere kans op Google block. 3-5 is veilig.</div>
+            </div>
+            <div class="control">
+              <input type="number" id="setSpeed" min="1" max="20" value="3">
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info">
+              <div class="info-title">Resultaten per search</div>
+              <div class="info-desc">Aantal bedrijven per zoekopdracht (10-50)</div>
+            </div>
+            <div class="control">
+              <input type="number" id="setMaxResults" min="5" max="100" value="20">
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info">
+              <div class="info-title">Herhaal interval (dagen)</div>
+              <div class="info-desc">Hoe vaak elke combinatie opnieuw scrapen voor nieuwe bedrijven</div>
+            </div>
+            <div class="control">
+              <input type="number" id="setRepeat" min="1" max="365" value="14">
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="info">
+              <div class="info-title">Nacht modus</div>
+              <div class="info-desc">'s Nachts (00:00 - 06:00) iets sneller draaien</div>
+            </div>
+            <div class="control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="setNight">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          <div style="margin-top:16px;">
+            <button id="saveSettingsBtn">Opslaan</button>
+          </div>
+        </div>
       </div>
     </main>
   </div>
 
   <script>
     const state = {
-      currentSearch: null,
+      view: 'dashboard',
       leads: [],
       filter: 'all',
       filterText: '',
-      eventSource: null,
+      filterBranch: '',
+      filterCity: '',
+      branches: [],
+      cities: [],
+      settings: {},
+      scheduler: {},
     };
 
-    const $ = (sel) => document.querySelector(sel);
-    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-    // === API ===
     async function api(url, opts = {}) {
       const res = await fetch(url, {
         headers: { 'Content-Type': 'application/json' },
         ...opts,
         body: opts.body ? JSON.stringify(opts.body) : undefined,
       });
-      if (!res.ok) throw new Error((await res.json()).error || 'Fout');
+      if (!res.ok) {
+        let err = 'Fout';
+        try { err = (await res.json()).error || err; } catch {}
+        throw new Error(err);
+      }
       return res.json();
     }
 
-    // === LADEN ===
-    async function loadSearches() {
-      const searches = await api('/api/searches');
-      const list = $('#searchesList');
-      list.innerHTML = searches.map(s => `
-        <div class="search-item ${state.currentSearch === s.id ? 'active' : ''}" data-id="${s.id}">
-          <div class="search-item-title">${escapeHtml(s.query)}${s.location ? ` <span style="color:var(--text-faint)">· ${escapeHtml(s.location)}</span>` : ''}</div>
-          <div class="search-item-meta">
-            ${s.lead_count} leads
-            <span class="status-badge ${s.status}">${s.status}</span>
-          </div>
-        </div>
-      `).join('');
-
-      $$('.search-item').forEach(el => {
-        el.addEventListener('click', () => selectSearch(parseInt(el.dataset.id)));
-      });
-    }
-
-    async function selectSearch(id) {
-      state.currentSearch = id;
-      $('#emptyState').style.display = 'none';
-      $('#contentArea').style.display = 'block';
-
-      // Update sidebar
-      $$('.search-item').forEach(el => el.classList.toggle('active', parseInt(el.dataset.id) === id));
-
-      const searches = await api('/api/searches');
-      const s = searches.find(x => x.id === id);
-      if (!s) return;
-
-      $('#searchTitle').textContent = s.query + (s.location ? ` · ${s.location}` : '');
-      $('#searchMeta').textContent = `Gestart op ${new Date(s.created_at + 'Z').toLocaleString('nl-NL')} · status: ${s.status}`;
-
-      await loadLeads();
-      connectSSE(id);
-    }
-
-    async function loadLeads() {
-      if (!state.currentSearch) return;
-      state.leads = await api(`/api/searches/${state.currentSearch}/leads`);
-      renderLeads();
-      updateStats();
-    }
-
-    function updateStats() {
-      const leads = state.leads;
-      $('#statTotal').textContent = leads.length;
-      $('#statWebsites').textContent = leads.filter(l => l.website).length;
-      $('#statHigh').textContent = leads.filter(l => (l.replacement_score || 0) >= 60).length;
-      $('#statMobile').textContent = leads.filter(l => l.analyzed && !l.is_mobile_friendly).length;
-    }
-
-    function renderLeads() {
-      const grid = $('#leadsGrid');
-      let leads = state.leads;
-
-      // Filter
-      if (state.filter === 'high') leads = leads.filter(l => (l.replacement_score || 0) >= 60);
-      if (state.filter === 'nomobile') leads = leads.filter(l => l.analyzed && !l.is_mobile_friendly);
-      if (state.filter === 'nocms') leads = leads.filter(l => l.analyzed && !l.has_cms);
-      if (state.filter === 'nohttps') leads = leads.filter(l => l.analyzed && !l.has_https);
-      if (state.filter === 'uncontacted') leads = leads.filter(l => !l.contacted);
-
-      if (state.filterText) {
-        const q = state.filterText.toLowerCase();
-        leads = leads.filter(l =>
-          (l.name || '').toLowerCase().includes(q) ||
-          (l.address || '').toLowerCase().includes(q) ||
-          (l.issues || []).join(' ').toLowerCase().includes(q)
-        );
-      }
-
-      if (leads.length === 0) {
-        grid.innerHTML = `<div class="empty"><p>Geen leads matchen het filter.</p></div>`;
-        return;
-      }
-
-      grid.innerHTML = leads.map(l => {
-        const score = l.replacement_score;
-        const scoreClass = score === null ? 'none' : score >= 60 ? 'high' : score >= 35 ? 'med' : 'low';
-        const issues = l.issues || [];
-        const visibleIssues = issues.slice(0, 4);
-
-        return `
-          <div class="lead ${score >= 60 ? 'high-score' : ''} ${l.contacted ? 'contacted' : ''}" data-id="${l.id}">
-            <div class="lead-row">
-              <div class="score-circle ${scoreClass}">
-                ${score === null ? '—' : score}
-              </div>
-              <div class="lead-info">
-                <h4>${escapeHtml(l.name)}</h4>
-                <div class="meta">
-                  ${l.rating ? `★ ${l.rating}` : ''}
-                  ${l.review_count ? ` (${l.review_count})` : ''}
-                  ${l.category ? ` · ${escapeHtml(l.category)}` : ''}
-                  ${l.phone ? ` · ${escapeHtml(l.phone)}` : ''}
-                </div>
-                ${l.website ? `<div class="website-line">→ ${escapeHtml(l.website)}</div>` : `<div class="website-line" style="color:var(--text-faint)">Geen website</div>`}
-              </div>
-              <div class="lead-issues">
-                ${visibleIssues.map(i => `<span class="issue-tag">${escapeHtml(i)}</span>`).join('')}
-                ${issues.length > visibleIssues.length ? `<span class="issue-tag warn">+${issues.length - visibleIssues.length}</span>` : ''}
-              </div>
-              <div class="lead-actions">
-                ${l.website ? `<button class="tiny secondary" onclick="event.stopPropagation(); window.open('${l.website}','_blank')">Open site</button>` : ''}
-                ${l.google_maps_url ? `<button class="tiny secondary" onclick="event.stopPropagation(); window.open('${l.google_maps_url}','_blank')">Maps</button>` : ''}
-                <label class="checkbox-label" onclick="event.stopPropagation()">
-                  <input type="checkbox" ${l.contacted ? 'checked' : ''} onchange="toggleContacted(${l.id}, this.checked)">
-                  benaderd
-                </label>
-              </div>
-            </div>
-            <div class="lead-detail">
-              ${l.analyzed ? renderDetail(l) : '<p style="color:var(--text-faint); font-size:12px;">Nog niet geanalyseerd. ' + (l.website ? '<a href="#" onclick="reanalyze(' + l.id + '); return false;">Analyseer nu →</a>' : '') + '</p>'}
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      // Klik handlers voor expand
-      $$('.lead-row').forEach(row => {
-        row.addEventListener('click', () => row.parentElement.classList.toggle('expanded'));
-      });
-    }
-
-    function renderDetail(l) {
-      return `
-        <div class="detail-grid">
-          <div class="detail-item">
-            <label>HTTPS</label>
-            <div class="val ${l.has_https ? 'green' : 'red'}">${l.has_https ? '✓ Ja' : '✗ Nee'}</div>
-          </div>
-          <div class="detail-item">
-            <label>Mobiel-vriendelijk</label>
-            <div class="val ${l.is_mobile_friendly ? 'green' : 'red'}">${l.is_mobile_friendly ? '✓ Ja' : '✗ Nee'}</div>
-          </div>
-          <div class="detail-item">
-            <label>CMS</label>
-            <div class="val">${l.cms_type || 'Niet gedetecteerd'}</div>
-          </div>
-          <div class="detail-item">
-            <label>Open Graph</label>
-            <div class="val ${l.has_open_graph ? 'green' : 'red'}">${l.has_open_graph ? '✓ Ja' : '✗ Nee'}</div>
-          </div>
-          ${l.pagespeed_score !== null ? `
-            <div class="detail-item">
-              <label>PageSpeed</label>
-              <div class="val ${l.pagespeed_score >= 70 ? 'green' : l.pagespeed_score >= 40 ? '' : 'red'}">${l.pagespeed_score}/100</div>
-            </div>
-          ` : ''}
-          ${l.copyright_year ? `
-            <div class="detail-item">
-              <label>Copyright jaar</label>
-              <div class="val ${l.copyright_year < new Date().getFullYear() - 2 ? 'red' : ''}">${l.copyright_year}</div>
-            </div>
-          ` : ''}
-        </div>
-
-        ${(l.issues || []).length > 0 ? `
-          <label style="display:block; margin-bottom:6px;">Alle issues</label>
-          <div class="all-issues">
-            ${l.issues.map(i => `<span class="issue-tag">${escapeHtml(i)}</span>`).join('')}
-          </div>
-        ` : ''}
-
-        ${(l.tech_stack || []).length > 0 ? `
-          <label style="display:block; margin-top:10px; margin-bottom:6px;">Tech stack</label>
-          <div class="all-issues">
-            ${l.tech_stack.map(t => `<span class="issue-tag ${t.startsWith('OUTDATED:') ? '' : 'warn'}" style="${!t.startsWith('OUTDATED:') ? 'background:rgba(95,168,255,0.1);color:var(--info)' : ''}">${escapeHtml(t.replace('OUTDATED:', '⚠ '))}</span>`).join('')}
-          </div>
-        ` : ''}
-
-        <label style="display:block; margin-top:14px;">Notities</label>
-        <textarea class="notes-input" placeholder="Persoonlijke aantekeningen..."
-          onchange="saveNotes(${l.id}, this.value)">${escapeHtml(l.notes || '')}</textarea>
-
-        <div style="margin-top:10px; display:flex; gap:8px;">
-          <button class="tiny secondary" onclick="reanalyze(${l.id})">Opnieuw analyseren</button>
-        </div>
-      `;
-    }
-
-    // === ACTIES ===
-    async function toggleContacted(id, checked) {
-      await api(`/api/leads/${id}`, { method: 'PATCH', body: { contacted: checked } });
-      const lead = state.leads.find(l => l.id === id);
-      if (lead) lead.contacted = checked ? 1 : 0;
-      renderLeads();
-    }
-
-    async function saveNotes(id, notes) {
-      await api(`/api/leads/${id}`, { method: 'PATCH', body: { notes } });
-      const lead = state.leads.find(l => l.id === id);
-      if (lead) lead.notes = notes;
-      toast('Notitie opgeslagen');
-    }
-
-    async function reanalyze(id) {
-      toast('Analyseren...');
-      try {
-        await api(`/api/leads/${id}/analyze`, { method: 'POST' });
-        await loadLeads();
-        toast('Analyse klaar');
-      } catch (e) {
-        toast('Fout: ' + e.message);
-      }
-    }
-
-    window.toggleContacted = toggleContacted;
-    window.saveNotes = saveNotes;
-    window.reanalyze = reanalyze;
-
-    // === SSE ===
-    function connectSSE(searchId) {
-      if (state.eventSource) state.eventSource.close();
-      state.eventSource = new EventSource(`/api/search/${searchId}/stream`);
-      state.eventSource.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        handleProgress(data);
-      };
-    }
-
-    function handleProgress(data) {
-      const card = $('#progressCard');
-      const text = $('#progressText');
-      const fill = $('#progressFill');
-
-      if (data.type === 'connected') return;
-      if (data.type === 'done' || data.type === 'error') {
-        setTimeout(() => {
-          card.classList.add('idle');
-          loadLeads();
-          loadSearches();
-        }, 1000);
-        return;
-      }
-
-      card.classList.remove('idle');
-      text.textContent = data.message || '';
-
-      if (data.progress && data.total) {
-        fill.style.width = `${(data.progress / data.total) * 100}%`;
-      } else if (data.type === 'analyze_done' || data.type === 'scrape_done') {
-        loadLeads();
-      }
-
-      // Auto-refresh leads bij scrape progress
-      if (data.type === 'scrape_done') {
-        loadLeads();
-      }
-    }
-
-    // === FORM ===
-    $('#searchForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const btn = $('#searchBtn');
-      btn.disabled = true;
-      try {
-        const result = await api('/api/search', {
-          method: 'POST',
-          body: {
-            query: $('#query').value,
-            location: $('#location').value,
-            max_results: parseInt($('#maxResults').value),
-            auto_analyze: $('#autoAnalyze').checked,
-          },
-        });
-        await loadSearches();
-        await selectSearch(result.search_id);
-      } catch (err) {
-        toast('Fout: ' + err.message);
-      } finally {
-        btn.disabled = false;
-      }
-    });
-
-    // Filter handlers
-    $$('.chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        $$('.chip').forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-        state.filter = chip.dataset.filter;
-        renderLeads();
-      });
-    });
-
-    $('#filterText').addEventListener('input', (e) => {
-      state.filterText = e.target.value;
-      renderLeads();
-    });
-
-    $('#exportBtn').addEventListener('click', () => {
-      window.location = `/api/searches/${state.currentSearch}/export.csv`;
-    });
-
-    $('#deleteBtn').addEventListener('click', async () => {
-      if (!confirm('Zoekopdracht en alle leads verwijderen?')) return;
-      await api(`/api/searches/${state.currentSearch}`, { method: 'DELETE' });
-      state.currentSearch = null;
-      $('#contentArea').style.display = 'none';
-      $('#emptyState').style.display = 'block';
-      await loadSearches();
-    });
-
-    // === HELPERS ===
-    function escapeHtml(str) {
-      if (str === null || str === undefined) return '';
-      return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    function escapeHtml(s) {
+      if (s === null || s === undefined) return '';
+      return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
     }
 
     function toast(msg) {
@@ -959,8 +538,402 @@
       setTimeout(() => t.remove(), 2500);
     }
 
+    // === NAVIGATION ===
+    $$('.nav-item').forEach(item => {
+      item.addEventListener('click', () => switchView(item.dataset.view));
+    });
+
+    function switchView(view) {
+      state.view = view;
+      $$('.nav-item').forEach(i => i.classList.toggle('active', i.dataset.view === view));
+      $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
+      // Lazy load
+      if (view === 'dashboard') loadDashboard();
+      if (view === 'leads') loadLeads();
+      if (view === 'branches') loadBranches();
+      if (view === 'cities') loadCities();
+      if (view === 'settings') loadSettings();
+    }
+
+    // === DASHBOARD ===
+    async function loadDashboard() {
+      try {
+        const data = await api('/api/dashboard');
+        $('#dTotal').textContent = data.stats.total_leads;
+        $('#dHighScore').textContent = data.stats.high_score_leads;
+        $('#dToday').textContent = data.stats.leads_today;
+        $('#dContacted').textContent = data.stats.contacted;
+        $('#dQueueTotal').textContent = data.queue.total || 0;
+        $('#dQueueDue').textContent = data.queue.due_now || 0;
+        $('#dBranches').textContent = data.stats.unique_branches;
+        $('#dCities').textContent = data.stats.unique_cities;
+
+        // Auto-pilot status in sidebar
+        updateAutopilotUI(data.scheduler);
+        $('#navHighScore').textContent = data.stats.high_score_leads;
+
+        // Top leads vandaag
+        const grid = $('#topLeadsGrid');
+        if (data.new_today.length === 0) {
+          grid.innerHTML = `<div class="empty"><p>Nog geen nieuwe leads vandaag.</p></div>`;
+        } else {
+          // Parse JSON fields
+          for (const l of data.new_today) {
+            try { l.issues = l.issues ? JSON.parse(l.issues) : []; } catch { l.issues = []; }
+            try { l.tech_stack = l.tech_stack ? JSON.parse(l.tech_stack) : []; } catch { l.tech_stack = []; }
+            try { l.emails = l.emails ? JSON.parse(l.emails) : []; } catch { l.emails = []; }
+          }
+          grid.innerHTML = data.new_today.map(renderLeadHTML).join('');
+          attachLeadHandlers(grid);
+        }
+      } catch (e) {
+        console.error('Dashboard load error:', e);
+      }
+    }
+
+    function updateAutopilotUI(s) {
+      state.scheduler = s;
+      const dot = $('#apDot');
+      const label = $('#apLabel');
+      const meta = $('#apMeta');
+      const toggle = $('#apToggle');
+
+      if (s.autopilotEnabled) {
+        dot.className = s.lastError ? 'pulse-dot error' : 'pulse-dot on';
+        label.textContent = s.currentJob
+          ? `Bezig: ${s.currentJob.branch.substring(0,15)}...`
+          : 'Auto-pilot actief';
+        meta.textContent = s.currentJob
+          ? `${s.currentJob.city}`
+          : `${s.searchesPerHour}/uur · ${s.totalRuns} runs gedaan`;
+      } else {
+        dot.className = 'pulse-dot';
+        label.textContent = 'Auto-pilot uit';
+        meta.textContent = 'Klik switch om te starten';
+      }
+      toggle.checked = s.autopilotEnabled;
+    }
+
+    $('#apToggle').addEventListener('change', async (e) => {
+      try {
+        await api('/api/settings', {
+          method: 'POST',
+          body: { autopilot_enabled: e.target.checked ? '1' : '0' },
+        });
+        toast(e.target.checked ? '🤖 Auto-pilot aan' : '🛑 Auto-pilot uit');
+        loadDashboard();
+      } catch (err) {
+        toast('Fout: ' + err.message);
+      }
+    });
+
+    $('#runNowBtn').addEventListener('click', async () => {
+      try {
+        await api('/api/scheduler/run-now', { method: 'POST' });
+        toast('▶ Job gestart, even geduld...');
+        setTimeout(loadDashboard, 2000);
+      } catch (err) {
+        toast('Fout: ' + err.message);
+      }
+    });
+
+    // === LEADS ===
+    async function loadLeads() {
+      const params = new URLSearchParams();
+      if (state.filterBranch) params.set('branch', state.filterBranch);
+      if (state.filterCity) params.set('city', state.filterCity);
+      if (state.filter === 'high') params.set('minScore', '60');
+      if (state.filter === 'vhigh') params.set('minScore', '80');
+      if (state.filter === 'uncontacted') params.set('contacted', 'false');
+
+      state.leads = await api(`/api/leads?${params}`);
+      renderLeads();
+      populateFilterDropdowns();
+    }
+
+    function populateFilterDropdowns() {
+      // Verzamel unieke branches/cities uit huidige leads
+      const branchSet = new Set(state.leads.map(l => l.branch_name).filter(Boolean));
+      const citySet = new Set(state.leads.map(l => l.city_name).filter(Boolean));
+
+      const bSelect = $('#filterBranch');
+      const cSelect = $('#filterCity');
+      const currentB = bSelect.value;
+      const currentC = cSelect.value;
+
+      bSelect.innerHTML = '<option value="">Alle branches</option>' +
+        [...branchSet].sort().map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+      cSelect.innerHTML = '<option value="">Alle steden</option>' +
+        [...citySet].sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+
+      bSelect.value = currentB;
+      cSelect.value = currentC;
+    }
+
+    function renderLeads() {
+      const grid = $('#leadsGrid');
+      let leads = state.leads;
+      if (state.filterText) {
+        const q = state.filterText.toLowerCase();
+        leads = leads.filter(l =>
+          (l.name || '').toLowerCase().includes(q) ||
+          (l.address || '').toLowerCase().includes(q) ||
+          (l.issues || []).join(' ').toLowerCase().includes(q)
+        );
+      }
+      if (leads.length === 0) {
+        grid.innerHTML = `<div class="empty"><p>Geen leads matchen filters.</p></div>`;
+        return;
+      }
+      grid.innerHTML = leads.map(renderLeadHTML).join('');
+      attachLeadHandlers(grid);
+    }
+
+    function renderLeadHTML(l) {
+      const score = l.replacement_score;
+      const scoreClass = score === null ? 'none' : score >= 60 ? 'high' : score >= 35 ? 'med' : 'low';
+      const issues = l.issues || [];
+      const visible = issues.slice(0, 4);
+      return `
+        <div class="lead ${score >= 60 ? 'high-score' : ''} ${l.contacted ? 'contacted' : ''}" data-id="${l.id}">
+          <div class="lead-row">
+            <div class="score-circle ${scoreClass}">${score === null ? '—' : score}</div>
+            <div class="lead-info">
+              <h4>${escapeHtml(l.name)}</h4>
+              <div class="meta">
+                ${l.rating ? `★ ${l.rating}` : ''}${l.review_count ? ` (${l.review_count})` : ''}
+                ${l.branch_name ? ` · ${escapeHtml(l.branch_name)}` : ''}
+                ${l.city_name ? ` · ${escapeHtml(l.city_name)}` : ''}
+                ${l.phone ? ` · ${escapeHtml(l.phone)}` : ''}
+              </div>
+              ${l.website ? `<div class="website-line">→ ${escapeHtml(l.website)}</div>` : `<div class="website-line" style="color:var(--text-faint)">Geen website</div>`}
+            </div>
+            <div class="lead-issues">
+              ${visible.map(i => `<span class="issue-tag">${escapeHtml(i)}</span>`).join('')}
+              ${issues.length > visible.length ? `<span class="issue-tag warn">+${issues.length - visible.length}</span>` : ''}
+            </div>
+            <div class="lead-actions">
+              ${l.website ? `<button class="tiny secondary" onclick="event.stopPropagation(); window.open('${escapeHtml(l.website)}','_blank')">Open site</button>` : ''}
+              ${l.google_maps_url ? `<button class="tiny secondary" onclick="event.stopPropagation(); window.open('${escapeHtml(l.google_maps_url)}','_blank')">Maps</button>` : ''}
+              <label class="checkbox-label" onclick="event.stopPropagation()">
+                <input type="checkbox" ${l.contacted ? 'checked' : ''} onchange="toggleContacted(${l.id}, this.checked)">
+                benaderd
+              </label>
+            </div>
+          </div>
+          <div class="lead-detail">
+            ${l.analyzed ? renderDetailHTML(l) : `<p style="color:var(--text-faint);font-size:12px;">Nog niet geanalyseerd. ${l.website ? `<a href="#" onclick="reanalyze(${l.id});return false;">Analyseer nu →</a>` : ''}</p>`}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderDetailHTML(l) {
+      const emails = l.emails || [];
+      return `
+        <div class="detail-grid">
+          <div class="detail-item">
+            <label>HTTPS</label>
+            <div class="val ${l.has_https ? 'green' : 'red'}">${l.has_https ? '✓ Ja' : '✗ Nee'}</div>
+          </div>
+          <div class="detail-item">
+            <label>Mobiel</label>
+            <div class="val ${l.is_mobile_friendly ? 'green' : 'red'}">${l.is_mobile_friendly ? '✓ Ja' : '✗ Nee'}</div>
+          </div>
+          <div class="detail-item">
+            <label>CMS</label>
+            <div class="val">${escapeHtml(l.cms_type || 'Geen')}</div>
+          </div>
+          <div class="detail-item">
+            <label>Open Graph</label>
+            <div class="val ${l.has_open_graph ? 'green' : 'red'}">${l.has_open_graph ? '✓' : '✗'}</div>
+          </div>
+          ${l.pagespeed_score !== null ? `<div class="detail-item"><label>PageSpeed</label><div class="val ${l.pagespeed_score >= 70 ? 'green' : l.pagespeed_score >= 40 ? '' : 'red'}">${l.pagespeed_score}/100</div></div>` : ''}
+          ${l.copyright_year ? `<div class="detail-item"><label>Copyright</label><div class="val ${l.copyright_year < new Date().getFullYear() - 2 ? 'red' : ''}">${l.copyright_year}</div></div>` : ''}
+        </div>
+        ${emails.length > 0 ? `
+          <label class="field" style="margin-top:12px;">📧 Gevonden emails</label>
+          <div class="all-issues">
+            ${emails.map(e => `<span class="issue-tag info">${escapeHtml(e)}</span>`).join('')}
+          </div>
+        ` : ''}
+        ${(l.issues || []).length > 0 ? `
+          <label class="field" style="margin-top:12px;">⚠ Issues</label>
+          <div class="all-issues">
+            ${l.issues.map(i => `<span class="issue-tag">${escapeHtml(i)}</span>`).join('')}
+          </div>
+        ` : ''}
+        <label class="field" style="margin-top:12px;">📝 Notities</label>
+        <textarea class="notes-input" onchange="saveNotes(${l.id}, this.value)" placeholder="Persoonlijke aantekeningen...">${escapeHtml(l.notes || '')}</textarea>
+        <div style="margin-top:10px;">
+          <button class="tiny secondary" onclick="reanalyze(${l.id})">Opnieuw analyseren</button>
+        </div>
+      `;
+    }
+
+    function attachLeadHandlers(scope) {
+      scope.querySelectorAll('.lead-row').forEach(row => {
+        row.addEventListener('click', () => row.parentElement.classList.toggle('expanded'));
+      });
+    }
+
+    window.toggleContacted = async (id, checked) => {
+      await api(`/api/leads/${id}`, { method: 'PATCH', body: { contacted: checked } });
+      const lead = state.leads.find(l => l.id === id);
+      if (lead) lead.contacted = checked ? 1 : 0;
+      renderLeads();
+    };
+    window.saveNotes = async (id, notes) => {
+      await api(`/api/leads/${id}`, { method: 'PATCH', body: { notes } });
+      toast('✓ Opgeslagen');
+    };
+    window.reanalyze = async (id) => {
+      toast('Analyseren...');
+      try {
+        await api(`/api/leads/${id}/analyze`, { method: 'POST' });
+        if (state.view === 'leads') await loadLeads();
+        else await loadDashboard();
+        toast('✓ Klaar');
+      } catch (e) { toast('Fout: ' + e.message); }
+    };
+
+    $$('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        $$('.chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        state.filter = chip.dataset.filter;
+        loadLeads();
+      });
+    });
+    $('#filterText').addEventListener('input', (e) => {
+      state.filterText = e.target.value;
+      renderLeads();
+    });
+    $('#filterBranch').addEventListener('change', (e) => {
+      state.filterBranch = e.target.value;
+      loadLeads();
+    });
+    $('#filterCity').addEventListener('change', (e) => {
+      state.filterCity = e.target.value;
+      loadLeads();
+    });
+    $('#exportBtn').addEventListener('click', () => {
+      const params = new URLSearchParams();
+      if (state.filterBranch) params.set('branch', state.filterBranch);
+      if (state.filterCity) params.set('city', state.filterCity);
+      if (state.filter === 'high') params.set('minScore', '60');
+      if (state.filter === 'vhigh') params.set('minScore', '80');
+      window.location = `/api/export.csv?${params}`;
+    });
+
+    // === BRANCHES ===
+    async function loadBranches() {
+      state.branches = await api('/api/branches');
+      const list = $('#branchesList');
+      list.innerHTML = state.branches.map(b => `
+        <div class="list-item ${b.enabled ? '' : 'disabled'}">
+          <label class="toggle-switch" style="width:30px; height:16px;">
+            <input type="checkbox" ${b.enabled ? 'checked' : ''} onchange="toggleBranch(${b.id}, this.checked)">
+            <span class="slider" style="border-radius:16px;"></span>
+          </label>
+          <span class="name">${escapeHtml(b.name)}</span>
+          <button class="tiny danger" onclick="deleteBranch(${b.id})">×</button>
+        </div>
+      `).join('');
+    }
+    window.toggleBranch = async (id, enabled) => {
+      await api(`/api/branches/${id}`, { method: 'PATCH', body: { enabled } });
+      loadBranches();
+    };
+    window.deleteBranch = async (id) => {
+      if (!confirm('Branche verwijderen?')) return;
+      await api(`/api/branches/${id}`, { method: 'DELETE' });
+      loadBranches();
+    };
+    $('#addBranchBtn').addEventListener('click', async () => {
+      const name = $('#newBranchInput').value.trim();
+      if (!name) return;
+      try {
+        await api('/api/branches', { method: 'POST', body: { name } });
+        $('#newBranchInput').value = '';
+        loadBranches();
+        toast('✓ Toegevoegd, queue wordt aangevuld');
+      } catch (e) { toast('Fout: ' + e.message); }
+    });
+    $('#newBranchInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') $('#addBranchBtn').click();
+    });
+
+    // === CITIES ===
+    async function loadCities() {
+      state.cities = await api('/api/cities');
+      const list = $('#citiesList');
+      list.innerHTML = state.cities.map(c => `
+        <div class="list-item ${c.enabled ? '' : 'disabled'}">
+          <label class="toggle-switch" style="width:30px; height:16px;">
+            <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleCity(${c.id}, this.checked)">
+            <span class="slider" style="border-radius:16px;"></span>
+          </label>
+          <span class="name">${escapeHtml(c.name)}</span>
+          <button class="tiny danger" onclick="deleteCity(${c.id})">×</button>
+        </div>
+      `).join('');
+    }
+    window.toggleCity = async (id, enabled) => {
+      await api(`/api/cities/${id}`, { method: 'PATCH', body: { enabled } });
+      loadCities();
+    };
+    window.deleteCity = async (id) => {
+      if (!confirm('Stad verwijderen?')) return;
+      await api(`/api/cities/${id}`, { method: 'DELETE' });
+      loadCities();
+    };
+    $('#addCityBtn').addEventListener('click', async () => {
+      const name = $('#newCityInput').value.trim();
+      if (!name) return;
+      try {
+        await api('/api/cities', { method: 'POST', body: { name } });
+        $('#newCityInput').value = '';
+        loadCities();
+        toast('✓ Toegevoegd, queue wordt aangevuld');
+      } catch (e) { toast('Fout: ' + e.message); }
+    });
+    $('#newCityInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') $('#addCityBtn').click();
+    });
+
+    // === SETTINGS ===
+    async function loadSettings() {
+      state.settings = await api('/api/settings');
+      $('#setAutopilot').checked = state.settings.autopilot_enabled === '1';
+      $('#setSpeed').value = state.settings.searches_per_hour || '3';
+      $('#setMaxResults').value = state.settings.max_results_per_search || '20';
+      $('#setRepeat').value = state.settings.repeat_interval_days || '14';
+      $('#setNight').checked = state.settings.night_mode === '1';
+    }
+    $('#saveSettingsBtn').addEventListener('click', async () => {
+      try {
+        await api('/api/settings', {
+          method: 'POST',
+          body: {
+            autopilot_enabled: $('#setAutopilot').checked ? '1' : '0',
+            searches_per_hour: $('#setSpeed').value,
+            max_results_per_search: $('#setMaxResults').value,
+            repeat_interval_days: $('#setRepeat').value,
+            night_mode: $('#setNight').checked ? '1' : '0',
+          },
+        });
+        toast('✓ Instellingen opgeslagen');
+        loadDashboard();
+      } catch (e) { toast('Fout: ' + e.message); }
+    });
+
     // === INIT ===
-    loadSearches();
+    loadDashboard();
+    // Auto-refresh dashboard elke 10s als die view actief is
+    setInterval(() => {
+      if (state.view === 'dashboard') loadDashboard();
+    }, 10000);
   </script>
 </body>
 </html>
