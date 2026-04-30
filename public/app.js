@@ -920,7 +920,33 @@ $$('.modal-backdrop').forEach(b => {
   b.addEventListener('click', e => { if (e.target === b) b.classList.remove('active'); });
 });
 
+// === USER / LOGOUT ===
+async function loadUser() {
+  try {
+    const me = await api('/api/me');
+    if (me.username) {
+      const initial = me.username.charAt(0).toUpperCase();
+      const ua = $('#userAvatar');
+      const un = $('#userName');
+      if (ua) ua.textContent = initial;
+      if (un) un.textContent = me.username;
+    }
+  } catch (e) {
+    // Niet ingelogd, redirect (server doet dit normaal al)
+    window.location = '/login.html';
+  }
+}
+
+window.logout = async () => {
+  if (!confirm('Uitloggen?')) return;
+  try {
+    await fetch('/api/logout', { method: 'POST' });
+  } catch {}
+  window.location = '/login.html';
+};
+
 // === INIT ===
+loadUser();
 loadDashboard();
 setInterval(() => {
   if (state.view === 'dashboard') loadDashboard();
