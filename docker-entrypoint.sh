@@ -19,4 +19,5 @@ ls -la /data
 
 # Drop naar pptruser en start de app
 # setpriv zit standaard in Ubuntu (puppeteer base image is Ubuntu-based)
-exec setpriv --reuid=1000 --regid=1000 --init-groups "$@"
+cd /app
+exec setpriv --reuid=1000 --regid=1000 --init-groups env HOME=/home/pptruser PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$@"
