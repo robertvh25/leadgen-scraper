@@ -252,7 +252,7 @@ const stmts = {
   updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ? WHERE id = ?`),
   updateLeadScreenshot: db.prepare(`UPDATE leads SET screenshot_path = ? WHERE id = ?`),
   updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
-  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (?1 IS NULL OR replacement_score >= ?1) AND (?2 IS NULL OR contacted = ?2) AND (?3 IS NULL OR branch_name = ?3) AND (?4 IS NULL OR city_name = ?4) AND (?5 IS NULL OR stage = ?5) ORDER BY replacement_score DESC NULLS LAST, created_at DESC LIMIT ?6`),
+  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
   getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
   getTopLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') AND replacement_score IS NOT NULL ORDER BY replacement_score DESC, created_at DESC LIMIT 20`),
   getLead: db.prepare(`SELECT * FROM leads WHERE id = ?`),
@@ -336,10 +336,22 @@ module.exports = {
   ),
   updateLeadScreenshot: (id, path) => stmts.updateLeadScreenshot.run(path, id),
   updateLeadStage: (id, stage) => stmts.updateLeadStage.run(stage, stage, id),
-  getAllLeads: (f = {}) => stmts.getAllLeads.all(
-    f.minScore ?? null, f.contacted ?? null, f.branch ?? null, f.city ?? null,
-    f.stage ?? null, f.limit ?? 500
-  ),
+  getAllLeads: (f = {}) => {
+    const minScore = f.minScore ?? null;
+    const contacted = f.contacted ?? null;
+    const branch = f.branch ?? null;
+    const city = f.city ?? null;
+    const stage = f.stage ?? null;
+    const limit = f.limit ?? 500;
+    return stmts.getAllLeads.all(
+      minScore, minScore,
+      contacted, contacted,
+      branch, branch,
+      city, city,
+      stage, stage,
+      limit
+    );
+  },
   getNewLeadsToday: () => stmts.getNewLeadsToday.all(),
   getTopLeadsToday: () => stmts.getTopLeadsToday.all(),
   getLead: (id) => stmts.getLead.get(id),
