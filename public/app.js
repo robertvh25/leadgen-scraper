@@ -87,7 +87,10 @@ function scoreClass(score) {
 
 // === NAVIGATION ===
 $$('.nav-item').forEach(item => {
-  item.addEventListener('click', () => switchView(item.dataset.view));
+  item.addEventListener('click', () => {
+    if (!item.dataset.view) return;
+    switchView(item.dataset.view);
+  });
 });
 
 function switchView(view, data = {}) {
