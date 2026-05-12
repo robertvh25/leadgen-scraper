@@ -579,11 +579,11 @@ window.saveLeadNotes = async (id) => {
   toast('✓ Opgeslagen');
 };
 window.startLeadFunnel = async (id) => {
-  if (!confirm('Lead in funnel zetten en direct de eerste outreach-mail versturen?\n\nDe lead krijgt vanuit de "Standaard outreach" sequence (template "Eerste contact"). Follow-up stappen worden door de sequence-engine ingepland.')) return;
+  if (!confirm('Lead in funnel zetten en direct de eerste outreach-mail versturen?\n\nDe lead krijgt vanuit de "Standaard outreach" sequence (template "Eerste contact"). Follow-up stappen worden door de sequence-engine ingepland (zichtbaar in Inbox zodra ze aan de beurt zijn).')) return;
   try {
     toast('Bezig met versturen…');
-    await api(`/api/leads/${id}/start-funnel`, { method: 'POST' });
-    toast('✓ In funnel + mail verzonden', 'success');
+    const res = await api(`/api/leads/${id}/start-funnel`, { method: 'POST' });
+    toast(`✓ ${res.message || 'Eerste mail verzonden'}`, 'success');
     // Refresh huidige view
     if (state.view === 'leads') loadLeads();
     else if (state.view === 'all-leads') loadAllLeads();

@@ -318,7 +318,10 @@ app.post('/api/leads/:id/start-funnel', async (req, res) => {
   // Start de campaign zodat follow-up stappen (delay>0) door sequence-engine worden gepland.
   db.startLeadCampaign(lead.id, seq.id);
   db.advanceCampaign(db.getLeadCampaigns(lead.id).find(c => c.sequence_id === seq.id)?.id);
-  res.json({ ok: true, message: 'Lead in funnel + eerste mail verzonden' });
+  res.json({
+    ok: true,
+    message: `Eerste mail verzonden: "${tmpl.name}". Follow-up stappen staan in de sequence (zichtbaar in Inbox zodra de delay verstrijkt).`,
+  });
 });
 
 app.post('/api/leads/:id/create-briefing', async (req, res) => {
