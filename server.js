@@ -296,15 +296,15 @@ app.post('/api/leads/:id/start-funnel', async (req, res) => {
   if (!recipient) return res.status(400).json({ error: 'Lead heeft geen email-adres. Voeg er een toe via ✏️ aanpassen.' });
   if (lead.stage && lead.stage !== 'new') return res.status(400).json({ error: `Lead staat al op stage '${lead.stage}', niet meer 'new'` });
 
-  // Vind eerste enabled sequence met trigger_stage='contacted'
+  // Zoek expliciet de "Eerste contact"-template op naam (robust tegen wijzigingen in sequence-volgorde)
+  const templates = db.getTemplates();
+  let tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd');
+  if (!tmpl) tmpl = templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
+  if (!tmpl) return res.status(400).json({ error: 'Geen template gevonden met "Eerste contact" in de naam. Maak er een aan via Templates.' });
+
+  // Voor follow-ups: zoek de standaard outreach sequence (zelfde trigger)
   const seqs = db.getSequences().filter(s => s.enabled && s.trigger_stage === 'contacted');
   const seq = seqs[0];
-  if (!seq) return res.status(400).json({ error: 'Geen actieve sequence gevonden met trigger contacted' });
-  const steps = db.getSequenceSteps(seq.id);
-  const firstStep = steps[0];
-  if (!firstStep) return res.status(400).json({ error: 'Sequence heeft geen stappen' });
-  const tmpl = db.getTemplate(firstStep.template_id);
-  if (!tmpl) return res.status(400).json({ error: 'Template van eerste stap niet gevonden' });
 
   // Render + direct verzenden (bypassed pending — Robert wil meteen mail uit)
   const subject = render(tmpl.subject || '', lead);
@@ -316,8 +316,12 @@ app.post('/api/leads/:id/start-funnel', async (req, res) => {
   }
   // sendEmail doet al advanceLeadStage naar 'contacted' + logCommunication.
   // Start de campaign zodat follow-up stappen (delay>0) door sequence-engine worden gepland.
-  db.startLeadCampaign(lead.id, seq.id);
-  db.advanceCampaign(db.getLeadCampaigns(lead.id).find(c => c.sequence_id === seq.id)?.id);
+  // Skip de eerste stap (al verstuurd) door current_step naar 1 te zetten.
+  if (seq) {
+    db.startLeadCampaign(lead.id, seq.id);
+    const camp = db.getLeadCampaigns(lead.id).find(c => c.sequence_id === seq.id);
+    if (camp) db.advanceCampaign(camp.id);
+  }
   res.json({
     ok: true,
     message: `Eerste mail verzonden: "${tmpl.name}". Follow-up stappen staan in de sequence (zichtbaar in Inbox zodra de delay verstrijkt).`,
