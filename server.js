@@ -19,6 +19,7 @@ const scheduler = require('./scheduler');
 const imapWatcher = require('./lib/imap-watcher');
 const autoSend = require('./lib/auto-send');
 const briefingClient = require('./lib/briefing-client');
+const leadSync = require('./lib/lead-sync');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -96,6 +97,7 @@ app.post('/api/webhook/calcom', (req, res) => {
       });
     }
     console.log(`📅 Booking ${trigger}: ${attendee.name || attendeeEmail} ${p.startTime || ''}${leadId ? ` → lead #${leadId}` : ' (geen lead-match)'}`);
+    if (leadId) leadSync.syncLeadAsync(leadId);
   } else if (trigger === 'BOOKING_CANCELLED') {
     db.setBookingStatus(uid, 'cancelled');
     if (leadId) {
@@ -108,6 +110,7 @@ app.post('/api/webhook/calcom', (req, res) => {
         recipient: attendeeEmail,
         status: 'received',
       });
+      leadSync.syncLeadAsync(leadId);
     }
     console.log(`📅 Booking CANCELLED: ${uid}`);
   } else {
@@ -355,6 +358,12 @@ app.post('/api/leads/:id/create-briefing', async (req, res) => {
     auto_send: 0,
     intent: 'direct_start',
   });
+
+  // Sla de slug op zodat we toekomstige mails/bookings automatisch kunnen syncen
+  db.setLeadBriefingSlug(lead.id, briefingClient.slugify(lead.name));
+
+  // Eerste sync naar briefing-app — alle bestaande historie meegeven
+  leadSync.syncLeadAsync(lead.id);
 
   res.json({
     ok: true,
