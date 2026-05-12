@@ -584,6 +584,14 @@ window.saveLeadNotes = async (id) => {
   await api(`/api/leads/${id}`, { method: 'PATCH', body: { notes } });
   toast('✓ Opgeslagen');
 };
+window.bulkFunnelHighScore = async () => {
+  if (!confirm('Alle nieuwe leads met score boven de drempel + email direct in funnel zetten en mailen?\n\nDit kan niet ongedaan worden gemaakt — emails worden verzonden.')) return;
+  try {
+    const res = await api('/api/leads/bulk-funnel', { method: 'POST' });
+    toast(res.message || `Batch gestart voor ${res.queued} leads`);
+    setTimeout(() => { loadLeads(); loadDashboard(); }, 4000);
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
 window.regenerateScreenshots = async () => {
   if (!confirm('Voor alle leads zonder screenshot een nieuwe genereren? Dit kan even duren.')) return;
   try {

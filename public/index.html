@@ -104,9 +104,9 @@
           </div>
         </div>
 
-        <!-- LEADS (HOGE SCORE - default ≥50) -->
+        <!-- LEADS (HOGE SCORE - default ≥50, stage=new only) -->
         <div class="view" id="view-leads">
-          <p class="subtitle">Leads met score ≥ 50 — de meest interessante prospects</p>
+          <p class="subtitle">Nieuwe leads met score ≥ 50 die nog niet benaderd zijn — de meest interessante prospects</p>
           <div class="filter-bar">
             <input type="text" id="filterText" placeholder="🔍 Filter op naam, adres...">
             <select id="filterBranch"><option value="">Alle branches</option></select>
@@ -115,6 +115,7 @@
             <button class="chip" data-filter="60">≥ 60</button>
             <button class="chip" data-filter="80">≥ 80</button>
             <button class="chip" data-filter="uncontacted">Niet benaderd</button>
+            <button onclick="bulkFunnelHighScore()" title="Alle nieuwe leads met score ≥ threshold + email direct in funnel zetten en mailen">⚡ Alle in funnel</button>
             <button class="ghost" id="exportBtn">↓ CSV</button>
           </div>
           <div class="leads-grid" id="leadsGrid"></div>

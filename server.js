@@ -380,6 +380,48 @@ app.post('/api/leads/:id/create-briefing', async (req, res) => {
   });
 });
 
+app.post('/api/leads/bulk-funnel', async (req, res) => {
+  const threshold = parseInt(db.getSetting('high_score_threshold') || '60');
+  // Vind alle 'new' leads met score >= threshold die ook een email hebben
+  const candidates = db.db.prepare(`SELECT id, name FROM leads WHERE stage = 'new' AND replacement_score >= ? AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(threshold);
+  res.json({ ok: true, queued: candidates.length, message: `Batch gestart voor ${candidates.length} hoge-score leads — eerste mail wordt direct verzonden` });
+  (async () => {
+    let sent = 0, skipped = 0, failed = 0;
+    const templates = db.getTemplates();
+    const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')
+      || templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
+    if (!tmpl) {
+      console.error('Bulk-funnel: geen Eerste contact-template gevonden');
+      return;
+    }
+    const seqs = db.getSequences().filter(s => s.enabled && s.trigger_stage === 'contacted');
+    const seq = seqs[0];
+    for (const c of candidates) {
+      try {
+        const lead = db.getLead(c.id);
+        if (!lead || lead.stage !== 'new') { skipped++; continue; }
+        parseLeadList([lead]);
+        const recipient = (lead.emails || [])[0];
+        if (!recipient) { skipped++; continue; }
+        const subject = render(tmpl.subject || '', lead);
+        const body = render(tmpl.body, lead);
+        await sendEmail({ to: recipient, subject, body, leadId: lead.id });
+        if (seq) {
+          db.startLeadCampaign(lead.id, seq.id);
+          const camp = db.getLeadCampaigns(lead.id).find(x => x.sequence_id === seq.id);
+          if (camp) db.advanceCampaign(camp.id);
+        }
+        sent++;
+        await new Promise(r => setTimeout(r, 2000)); // throttle 2s tussen mails
+      } catch (e) {
+        console.error(`Bulk-funnel fout voor lead #${c.id} "${c.name}":`, e.message);
+        failed++;
+      }
+    }
+    console.log(`✓ Bulk-funnel klaar: ${sent} verzonden, ${skipped} geskipt, ${failed} mislukt`);
+  })();
+});
+
 app.post('/api/leads/regenerate-screenshots', async (req, res) => {
   // Async — start een background-job, geef direct status terug
   const leads = db.db.prepare(`SELECT id, website FROM leads WHERE (screenshot_path IS NULL OR screenshot_path = '') AND website IS NOT NULL AND website != ''`).all();

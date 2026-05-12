@@ -426,7 +426,11 @@ module.exports = {
     const contacted = f.contacted ?? null;
     const branch = f.branch ?? null;
     const city = f.city ?? null;
-    const stage = f.stage ?? null;
+    // Standaard: alleen leads met stage 'new' (= nog niet in funnel) zodat
+    // overzichten niet vol staan met leads die al verwerkt zijn.
+    // Override met expliciete f.stage of f.allStages = true.
+    let stage = f.stage ?? null;
+    if (stage === null && !f.allStages) stage = 'new';
     const limit = f.limit ?? 500;
     return stmts.getAllLeads.all(
       minScore, minScore,
