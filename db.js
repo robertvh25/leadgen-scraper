@@ -292,6 +292,7 @@ const stmts = {
   getDuePendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.auto_send = 1 AND pa.scheduled_for <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 20`),
   getPendingAction: db.prepare(`SELECT * FROM pending_actions WHERE id = ?`),
   updatePendingActionStatus: db.prepare(`UPDATE pending_actions SET status = ? WHERE id = ?`),
+  updatePendingActionBody: db.prepare(`UPDATE pending_actions SET rendered_subject = ?, rendered_body = ? WHERE id = ?`),
   countPendingActions: db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending'`),
   findLeadByEmail: db.prepare(`SELECT * FROM leads WHERE emails IS NOT NULL AND emails LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT 1`),
   // Communications
@@ -399,6 +400,7 @@ module.exports = {
   getDuePendingActions: () => stmts.getDuePendingActions.all(),
   getPendingAction: (id) => stmts.getPendingAction.get(id),
   updatePendingActionStatus: (id, s) => stmts.updatePendingActionStatus.run(s, id),
+  updatePendingActionBody: (id, subject, body) => stmts.updatePendingActionBody.run(subject, body, id),
   countPendingActions: () => stmts.countPendingActions.get().c,
   findLeadByEmail: (email) => stmts.findLeadByEmail.get(email.toLowerCase()),
   // Communications

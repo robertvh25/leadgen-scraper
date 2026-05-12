@@ -393,6 +393,17 @@ app.post('/api/pending/:id/approve', async (req, res) => {
   }
 });
 
+app.patch('/api/pending/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const action = db.getPendingAction(id);
+  if (!action) return res.status(404).json({ error: 'Niet gevonden' });
+  if (action.status !== 'pending') return res.status(400).json({ error: 'Al verwerkt, niet meer bewerkbaar' });
+  const newSubject = typeof req.body.rendered_subject === 'string' ? req.body.rendered_subject : action.rendered_subject;
+  const newBody = typeof req.body.rendered_body === 'string' ? req.body.rendered_body : action.rendered_body;
+  db.updatePendingActionBody(id, newSubject, newBody);
+  res.json({ ok: true });
+});
+
 app.post('/api/pending/:id/skip', (req, res) => {
   const action = db.getPendingAction(parseInt(req.params.id));
   if (!action) return res.status(404).json({ error: 'Niet gevonden' });

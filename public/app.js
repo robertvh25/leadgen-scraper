@@ -674,50 +674,52 @@ async function loadPending() {
     return;
   }
   list.innerHTML = actions.map(a => {
-    const isAutoReply = a.type === 'email_reply' && a.auto_send;
-    const banner = isAutoReply
-      ? `<div class="auto-reply-banner" data-countdown="${a.scheduled_for}" style="background:var(--accent-soft);color:var(--accent-strong);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;font-weight:500;">🤖 Auto-reply — wordt verzonden over <span class="countdown">…</span>, tenzij je annuleert</div>`
+    const isAiReply = a.type === 'email_reply';
+    const banner = isAiReply
+      ? `<div style="background:var(--accent-soft);color:var(--accent-strong);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;font-weight:500;">🤖 AI-voorstel — controleer, pas aan indien nodig, klik Verstuur</div>`
       : '';
     return `
-    <div class="pending-card">
+    <div class="pending-card" data-pending-id="${a.id}">
       ${banner}
       <div class="header">
         <div>
           <div style="font-weight:600;">${escapeHtml(a.lead_name)}</div>
           <div style="font-size:11px; color:var(--text-faint);">
-            <span class="pill ${a.type}">${isAutoReply ? 'auto-reply' : a.type}</span> →
+            <span class="pill ${a.type}">${isAiReply ? 'AI-reply' : a.type}</span> →
             ${escapeHtml(a.recipient || 'geen ontvanger')} · score: ${a.replacement_score || '—'}
           </div>
         </div>
         <button class="ghost tiny" onclick="openLeadDetail(${a.lead_id})">Open lead →</button>
       </div>
-      ${a.rendered_subject ? `<div style="font-size:13px; font-weight:500; margin-bottom:6px;">${escapeHtml(a.rendered_subject)}</div>` : ''}
-      <div class="preview">${escapeHtml(a.rendered_body || '').substring(0, 400)}${(a.rendered_body || '').length > 400 ? '...' : ''}</div>
-      <div class="actions">
-        <button onclick="approvePending(${a.id})">✓ ${isAutoReply ? 'Nu versturen' : 'Verstuur'}</button>
-        ${isAutoReply ? '' : `<button class="secondary" onclick="skipPending(${a.id})">Skip stap</button>`}
+      ${a.rendered_subject ? `<input type="text" class="pending-subject" data-id="${a.id}" value="${escapeHtml(a.rendered_subject)}" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;margin-bottom:6px;">` : ''}
+      <textarea class="pending-body" data-id="${a.id}" rows="${Math.max(8, Math.min(24, (a.rendered_body || '').split('\\n').length + 1))}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;">${escapeHtml(a.rendered_body || '')}</textarea>
+      <div class="actions" style="margin-top:8px;">
+        <button onclick="approvePending(${a.id})">✓ Verstuur</button>
+        <button class="secondary" onclick="savePending(${a.id})">💾 Sla op</button>
         <button class="ghost" onclick="cancelPending(${a.id})">Annuleer</button>
       </div>
     </div>
   `;
   }).join('');
-  updateCountdowns();
 }
-function updateCountdowns() {
-  document.querySelectorAll('.auto-reply-banner[data-countdown]').forEach(el => {
-    const target = new Date(el.dataset.countdown).getTime();
-    const ms = target - Date.now();
-    const span = el.querySelector('.countdown');
-    if (!span) return;
-    if (ms <= 0) { span.textContent = 'nu'; return; }
-    const min = Math.floor(ms / 60000);
-    const sec = Math.floor((ms % 60000) / 1000);
-    span.textContent = `${min}:${sec.toString().padStart(2, '0')}`;
-  });
-}
-setInterval(updateCountdowns, 1000);
+window.savePending = async (id) => {
+  const card = document.querySelector(`[data-pending-id="${id}"]`);
+  const subject = card.querySelector('.pending-subject')?.value;
+  const body = card.querySelector('.pending-body')?.value;
+  await api(`/api/pending/${id}`, { method: 'PATCH', body: { rendered_subject: subject, rendered_body: body } });
+  toast('✓ Opgeslagen');
+};
 window.approvePending = async (id) => {
   try {
+    // Sla eventuele textarea-aanpassingen eerst op
+    const card = document.querySelector(`[data-pending-id="${id}"]`);
+    if (card) {
+      const subject = card.querySelector('.pending-subject')?.value;
+      const body = card.querySelector('.pending-body')?.value;
+      if (subject !== undefined || body !== undefined) {
+        await api(`/api/pending/${id}`, { method: 'PATCH', body: { rendered_subject: subject, rendered_body: body } });
+      }
+    }
     await api(`/api/pending/${id}/approve`, { method: 'POST' });
     toast('✓ Verstuurd');
     loadPending();
