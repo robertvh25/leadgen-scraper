@@ -251,6 +251,7 @@ const stmts = {
   insertLead: db.prepare(`INSERT OR IGNORE INTO leads (search_id, name, address, phone, website, google_maps_url, rating, review_count, category, branch_name, city_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ? WHERE id = ?`),
   updateLeadScreenshot: db.prepare(`UPDATE leads SET screenshot_path = ? WHERE id = ?`),
+  updateLeadEmails: db.prepare(`UPDATE leads SET emails = ? WHERE id = ?`),
   updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
   getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
   getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
@@ -335,6 +336,7 @@ module.exports = {
     id
   ),
   updateLeadScreenshot: (id, path) => stmts.updateLeadScreenshot.run(path, id),
+  updateLeadEmails: (id, emails) => stmts.updateLeadEmails.run(JSON.stringify(emails || []), id),
   updateLeadStage: (id, stage) => stmts.updateLeadStage.run(stage, stage, id),
   getAllLeads: (f = {}) => {
     const minScore = f.minScore ?? null;

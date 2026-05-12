@@ -155,6 +155,12 @@ app.patch('/api/leads/:id', (req, res) => {
   if (!lead) return res.status(404).json({ error: 'Niet gevonden' });
   if (typeof req.body.contacted === 'boolean') db.markContacted(id, req.body.contacted);
   if (typeof req.body.notes === 'string') db.updateNotes(id, req.body.notes);
+  if (Array.isArray(req.body.emails)) {
+    const clean = req.body.emails
+      .map(e => String(e).trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    db.updateLeadEmails(id, clean);
+  }
   if (typeof req.body.stage === 'string') {
     const newStage = req.body.stage;
     const valid = ['new', 'contacted', 'engaged', 'quote_sent', 'signed', 'project', 'lost'];

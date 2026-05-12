@@ -439,7 +439,7 @@ async function openLeadDetail(id) {
               ${lead.address ? `<div class="info-row"><div class="label">Adres</div><div class="value copy" onclick="copyText('${escapeHtml(lead.address)}')">${escapeHtml(lead.address)}</div></div>` : ''}
               ${phone ? `<div class="info-row"><div class="label">Telefoon</div><div class="value copy" onclick="copyText('${escapeHtml(phone)}')">${escapeHtml(phone)}</div></div>` : ''}
               ${lead.website ? `<div class="info-row"><div class="label">Website</div><div class="value"><a href="${escapeHtml(lead.website)}" target="_blank">${escapeHtml(lead.website)}</a></div></div>` : ''}
-              ${emails.length > 0 ? `<div class="info-row"><div class="label">Email</div><div class="value">${emails.map(e => `<div class="copy" onclick="copyText('${escapeHtml(e)}')" style="margin-bottom:4px;">${escapeHtml(e)}</div>`).join('')}</div></div>` : '<div class="info-row"><div class="label">Email</div><div class="value" style="color:var(--text-faint);">Geen gevonden</div></div>'}
+              <div class="info-row"><div class="label">Email</div><div class="value">${emails.length > 0 ? emails.map(e => `<div class="copy" onclick="copyText('${escapeHtml(e)}')" style="margin-bottom:4px;">${escapeHtml(e)}</div>`).join('') : '<span style="color:var(--text-faint);">Geen gevonden</span>'} <a href="#" onclick="editLeadEmails(${lead.id});return false;" style="font-size:12px;color:var(--accent);margin-left:6px;">✏️ aanpassen</a></div></div>
             </div>
             ${issues.length > 0 ? `
               <h3 style="margin-top:20px;">Issues</h3>
@@ -538,6 +538,16 @@ window.saveLeadNotes = async (id) => {
   const notes = $('#leadNotes').value;
   await api(`/api/leads/${id}`, { method: 'PATCH', body: { notes } });
   toast('✓ Opgeslagen');
+};
+window.editLeadEmails = async (id) => {
+  const lead = await api(`/api/leads/${id}`);
+  const current = Array.isArray(lead.emails) ? lead.emails.join(', ') : '';
+  const input = prompt('Emailadres(sen) — meerdere scheiden met komma:', current);
+  if (input === null) return;
+  const emails = input.split(',').map(e => e.trim()).filter(Boolean);
+  await api(`/api/leads/${id}`, { method: 'PATCH', body: { emails } });
+  toast('✓ Opgeslagen');
+  openLeadDetail(id);
 };
 window.moveLeadToStage = async (id) => {
   const stages = STAGES.filter(s => s.id !== 'new');
