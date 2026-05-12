@@ -16,6 +16,8 @@ const sequenceEngine = require('./lib/sequence-engine');
 const auth = require('./lib/auth');
 const db = require('./db');
 const scheduler = require('./scheduler');
+const imapWatcher = require('./lib/imap-watcher');
+const autoSend = require('./lib/auto-send');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -377,8 +379,8 @@ app.post('/api/pending/:id/approve', async (req, res) => {
       db.updatePendingActionStatus(id, 'failed');
       return res.status(400).json({ error: 'Geen ontvanger' });
     }
-    if (action.type === 'email') {
-      await sendEmail({ to: recipient, subject: action.rendered_subject, body: action.rendered_body, leadId: action.lead_id });
+    if (action.type === 'email' || action.type === 'email_reply') {
+      await sendEmail({ to: recipient, subject: action.rendered_subject, body: action.rendered_body, leadId: action.lead_id, inReplyTo: action.in_reply_to_message_id || null });
     } else if (action.type === 'whatsapp') {
       await sendWhatsApp({ to: recipient, body: action.rendered_body, leadId: action.lead_id });
     }
@@ -554,4 +556,6 @@ app.listen(PORT, () => {
   auth.init();
   scheduler.start();
   sequenceEngine.startEngine();
+  imapWatcher.start();
+  autoSend.start();
 });

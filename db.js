@@ -134,6 +134,8 @@ function addColumnIfMissing(table, col, def) {
 addColumnIfMissing('leads', 'screenshot_path', 'TEXT');
 addColumnIfMissing('leads', 'stage', `TEXT DEFAULT 'new'`);
 addColumnIfMissing('leads', 'deal_added_at', 'DATETIME');
+addColumnIfMissing('pending_actions', 'auto_send', 'INTEGER DEFAULT 0');
+addColumnIfMissing('pending_actions', 'in_reply_to_message_id', 'TEXT');
 
 // Set default stage for any lead without one (existing leads)
 db.exec(`UPDATE leads SET stage = 'new' WHERE stage IS NULL OR stage = ''`);
@@ -285,11 +287,13 @@ const stmts = {
   advanceCampaign: db.prepare(`UPDATE lead_campaigns SET current_step = current_step + 1, last_action_at = datetime('now') WHERE id = ?`),
   completeCampaign: db.prepare(`UPDATE lead_campaigns SET status = 'completed', last_action_at = datetime('now') WHERE id = ?`),
   // Pending actions
-  insertPendingAction: db.prepare(`INSERT INTO pending_actions (lead_id, campaign_id, step_id, type, template_id, rendered_subject, rendered_body, recipient, scheduled_for) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-  getPendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name, l.website AS lead_website, l.replacement_score FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.scheduled_for <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 50`),
+  insertPendingAction: db.prepare(`INSERT INTO pending_actions (lead_id, campaign_id, step_id, type, template_id, rendered_subject, rendered_body, recipient, scheduled_for, auto_send, in_reply_to_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  getPendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name, l.website AS lead_website, l.replacement_score FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' ORDER BY pa.scheduled_for ASC LIMIT 50`),
+  getDuePendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.auto_send = 1 AND pa.scheduled_for <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 20`),
   getPendingAction: db.prepare(`SELECT * FROM pending_actions WHERE id = ?`),
   updatePendingActionStatus: db.prepare(`UPDATE pending_actions SET status = ? WHERE id = ?`),
-  countPendingActions: db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending' AND scheduled_for <= datetime('now')`),
+  countPendingActions: db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending'`),
+  findLeadByEmail: db.prepare(`SELECT * FROM leads WHERE emails IS NOT NULL AND emails LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT 1`),
   // Communications
   insertCommunication: db.prepare(`INSERT INTO communications (lead_id, type, direction, subject, body, recipient, status, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
   getLeadCommunications: db.prepare(`SELECT * FROM communications WHERE lead_id = ? ORDER BY sent_at DESC LIMIT 100`),
@@ -390,11 +394,13 @@ module.exports = {
   advanceCampaign: (id) => stmts.advanceCampaign.run(id),
   completeCampaign: (id) => stmts.completeCampaign.run(id),
   // Pending
-  addPendingAction: (a) => stmts.insertPendingAction.run(a.lead_id, a.campaign_id || null, a.step_id || null, a.type, a.template_id || null, a.rendered_subject || null, a.rendered_body, a.recipient || null, a.scheduled_for || new Date().toISOString()),
+  addPendingAction: (a) => stmts.insertPendingAction.run(a.lead_id, a.campaign_id || null, a.step_id || null, a.type, a.template_id || null, a.rendered_subject || null, a.rendered_body, a.recipient || null, a.scheduled_for || new Date().toISOString(), a.auto_send ? 1 : 0, a.in_reply_to_message_id || null),
   getPendingActions: () => stmts.getPendingActions.all(),
+  getDuePendingActions: () => stmts.getDuePendingActions.all(),
   getPendingAction: (id) => stmts.getPendingAction.get(id),
   updatePendingActionStatus: (id, s) => stmts.updatePendingActionStatus.run(s, id),
   countPendingActions: () => stmts.countPendingActions.get().c,
+  findLeadByEmail: (email) => stmts.findLeadByEmail.get(email.toLowerCase()),
   // Communications
   logCommunication: (c) => stmts.insertCommunication.run(c.lead_id, c.type, c.direction || 'outbound', c.subject || null, c.body || null, c.recipient || null, c.status || 'sent', c.error || null),
   getLeadCommunications: (id) => stmts.getLeadCommunications.all(id),
