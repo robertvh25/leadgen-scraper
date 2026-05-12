@@ -95,7 +95,11 @@ $$('.nav-item').forEach(item => {
 
 function switchView(view, data = {}) {
   state.view = view;
-  $$('.nav-item').forEach(i => i.classList.toggle('active', i.dataset.view === view));
+  $$('.nav-item').forEach(i => {
+    const isActive = i.dataset.view === view;
+    i.classList.toggle('active', isActive);
+    if (i.tagName === 'BUTTON') i.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
 
   const titles = {

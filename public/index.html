@@ -9,93 +9,47 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="logo">
-        <div class="logo-icon">L</div>
-        <div class="logo-text">Lead<span>Hunter</span></div>
-      </div>
-
-      <div class="nav-item active" data-view="dashboard">
-        <span class="icon">📊</span>Dashboard
-      </div>
-      <div class="nav-item" data-view="leads">
-        <span class="icon">🎯</span>Hoge score leads
-        <span class="badge" id="navLeadsCount">0</span>
-      </div>
-      <div class="nav-item" data-view="all-leads">
-        <span class="icon">📋</span>Alle leads
-        <span class="badge" id="navAllLeadsCount">0</span>
-      </div>
-      <div class="nav-item" data-view="funnel">
-        <span class="icon">💼</span>Funnel
-        <span class="badge" id="navFunnelCount">0</span>
-      </div>
-      <div class="nav-item" data-view="pending">
-        <span class="icon">📬</span>Inbox
-        <span class="badge warn" id="navPendingCount">0</span>
-      </div>
-      <div class="nav-item" data-view="bookings">
-        <span class="icon">📅</span>Boekingen
-        <span class="badge" id="navBookingsCount">0</span>
-      </div>
-      <div class="nav-item" data-view="projects">
-        <span class="icon">📁</span>Projecten
-      </div>
-
-      <div class="nav-section">Configuratie</div>
-      <div class="nav-item" data-view="branches">
-        <span class="icon">🏗️</span>Branches
-      </div>
-      <div class="nav-item" data-view="cities">
-        <span class="icon">🌍</span>Steden
-      </div>
-      <div class="nav-item" data-view="templates">
-        <span class="icon">📝</span>Templates
-      </div>
-      <div class="nav-item" data-view="sequences">
-        <span class="icon">⚡</span>Sequences
-      </div>
-      <div class="nav-item" data-view="settings">
-        <span class="icon">⚙️</span>Instellingen
-      </div>
-
-      <div class="nav-section">Apps</div>
-      <a class="nav-item" href="https://briefing.aitomade.nl">
-        <span class="icon">📋</span>Briefings →
-      </a>
-
-      <div class="sidebar-footer">
-        <div class="autopilot-card">
-          <div class="ap-row">
-            <div class="ap-status-dot">
-              <span class="pulse-dot" id="apDot"></span>
-              <span id="apLabel">Auto-pilot uit</span>
-            </div>
-            <label class="toggle-switch">
+<body class="admin">
+  <div class="admin-shell">
+    <header class="admin-header">
+      <div class="admin-header__inner">
+        <a href="#" class="admin-logo" onclick="switchView('dashboard');return false;">LeadHunter · Aitomade</a>
+        <nav class="admin-topnav">
+          <span class="autopilot-mini">
+            <span class="pulse-dot" id="apDot"></span>
+            <span id="apLabel" style="font-size:13px;color:var(--mute)">Auto-pilot uit</span>
+            <label class="toggle-switch" style="margin-left:6px;">
               <input type="checkbox" id="apToggle">
               <span class="slider"></span>
             </label>
-          </div>
-          <div style="font-size:11.5px; color: var(--text-dim);" id="apMeta">—</div>
-        </div>
-
-        <div class="user-chip" onclick="logout()">
-          <div class="user-avatar" id="userAvatar">?</div>
-          <div class="user-info">
-            <div class="user-name" id="userName">—</div>
-            <div class="user-action">Uitloggen →</div>
-          </div>
-        </div>
+          </span>
+          <a href="https://briefing.aitomade.nl" style="color:var(--accent);text-decoration:none;font-size:14px;font-weight:600">📋 Briefings →</a>
+          <a href="#" onclick="logout();return false;" style="color:var(--mute);font-size:14px;text-decoration:none">Uitloggen</a>
+        </nav>
       </div>
-    </aside>
+    </header>
 
-    <main class="main">
-      <div class="topbar">
-        <div class="topbar-title" id="topbarTitle">Dashboard</div>
+    <main class="admin-main">
+      <div class="topbar" style="margin-bottom:8px;">
+        <h1 class="topbar-title" id="topbarTitle" style="margin:0;">Dashboard</h1>
         <div class="topbar-actions" id="topbarActions"></div>
       </div>
+
+      <nav class="tab-nav" role="tablist" aria-label="Hoofdnavigatie">
+        <button type="button" class="tab-btn nav-item" data-view="dashboard" data-target="dashboard" aria-selected="true">📊 Dashboard</button>
+        <button type="button" class="tab-btn nav-item" data-view="leads" data-target="leads">🎯 Hoge score leads <span class="tab-count" id="navLeadsCount">0</span></button>
+        <button type="button" class="tab-btn nav-item" data-view="all-leads" data-target="all-leads">📋 Alle leads <span class="tab-count" id="navAllLeadsCount">0</span></button>
+        <button type="button" class="tab-btn nav-item" data-view="funnel" data-target="funnel">💼 Funnel <span class="tab-count" id="navFunnelCount">0</span></button>
+        <button type="button" class="tab-btn nav-item" data-view="pending" data-target="pending">📬 Inbox <span class="tab-count tab-count--alert" id="navPendingCount">0</span></button>
+        <button type="button" class="tab-btn nav-item" data-view="bookings" data-target="bookings">📅 Boekingen <span class="tab-count" id="navBookingsCount">0</span></button>
+        <button type="button" class="tab-btn nav-item" data-view="projects" data-target="projects">📁 Projecten</button>
+        <span style="width:1px;height:24px;background:var(--line);margin:0 4px;"></span>
+        <button type="button" class="tab-btn nav-item" data-view="branches" data-target="branches">🏗️ Branches</button>
+        <button type="button" class="tab-btn nav-item" data-view="cities" data-target="cities">🌍 Steden</button>
+        <button type="button" class="tab-btn nav-item" data-view="templates" data-target="templates">📝 Templates</button>
+        <button type="button" class="tab-btn nav-item" data-view="sequences" data-target="sequences">⚡ Sequences</button>
+        <button type="button" class="tab-btn nav-item" data-view="settings" data-target="settings">⚙️ Instellingen</button>
+      </nav>
 
       <div class="content">
         <!-- DASHBOARD -->
