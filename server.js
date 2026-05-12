@@ -26,7 +26,10 @@ const COOKIE_SECURE = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', 1); // Belangrijk: voor secure cookies achter Traefik
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 app.use(cookieParser());
 
 // === LOGIN PAGES (PUBLIC) ===
@@ -36,6 +39,82 @@ app.get('/login.html', (req, res) => {
 
 // Health (public)
 app.get('/health', (_, res) => res.json({ ok: true }));
+
+// === CAL.COM WEBHOOK (PUBLIC, HMAC-verified) ===
+app.post('/api/webhook/calcom', (req, res) => {
+  const crypto = require('crypto');
+  const secret = process.env.CALCOM_WEBHOOK_SECRET;
+  if (!secret) {
+    console.warn('Cal.com webhook: CALCOM_WEBHOOK_SECRET niet gezet, weiger payload');
+    return res.status(503).json({ error: 'webhook not configured' });
+  }
+  const sig = req.headers['x-cal-signature-256'] || req.headers['x-signature-256'] || '';
+  const expected = crypto.createHmac('sha256', secret).update(req.rawBody || '').digest('hex');
+  if (sig !== expected) {
+    console.warn('Cal.com webhook: ongeldige signature, geweigerd');
+    return res.status(403).json({ error: 'invalid signature' });
+  }
+  const event = req.body || {};
+  const trigger = event.triggerEvent || event.event || '';
+  const p = event.payload || {};
+
+  const attendee = (p.attendees || [])[0] || {};
+  const attendeeEmail = (attendee.email || '').toLowerCase();
+  let leadId = null;
+  if (attendeeEmail) {
+    const lead = db.findLeadByEmail(attendeeEmail);
+    if (lead) leadId = lead.id;
+  }
+  const meetUrl = p.metadata?.videoCallUrl || p.location || '';
+  const uid = p.uid || p.bookingId || `noid-${Date.now()}`;
+
+  if (trigger === 'BOOKING_CREATED' || trigger === 'BOOKING_RESCHEDULED') {
+    db.upsertBooking({
+      lead_id: leadId,
+      calcom_uid: uid,
+      event_type: p.type || p.eventTypeId || '',
+      scheduled_at: p.startTime || null,
+      end_at: p.endTime || null,
+      attendee_email: attendeeEmail,
+      attendee_name: attendee.name || '',
+      meet_url: meetUrl,
+      location: typeof p.location === 'string' ? p.location : '',
+      status: 'confirmed',
+      raw_payload: JSON.stringify(event).slice(0, 50000),
+    });
+    if (leadId) {
+      db.advanceLeadStage(leadId, 'meeting_planned');
+      const when = p.startTime ? new Date(p.startTime).toLocaleString('nl-NL', { dateStyle: 'long', timeStyle: 'short' }) : 'onbekend';
+      db.logCommunication({
+        lead_id: leadId,
+        type: 'booking',
+        direction: 'inbound',
+        subject: `📅 Meeting geboekt: ${p.title || p.type || 'gesprek'}`,
+        body: `Datum: ${when}\nMet: ${attendee.name || attendeeEmail}\nMeet-link: ${meetUrl || '(niet beschikbaar)'}\n\nGeboekt via Cal.com.`,
+        recipient: attendeeEmail,
+        status: 'received',
+      });
+    }
+    console.log(`📅 Booking ${trigger}: ${attendee.name || attendeeEmail} ${p.startTime || ''}${leadId ? ` → lead #${leadId}` : ' (geen lead-match)'}`);
+  } else if (trigger === 'BOOKING_CANCELLED') {
+    db.setBookingStatus(uid, 'cancelled');
+    if (leadId) {
+      db.logCommunication({
+        lead_id: leadId,
+        type: 'booking',
+        direction: 'inbound',
+        subject: '❌ Meeting geannuleerd',
+        body: `Lead heeft de afspraak geannuleerd via Cal.com.`,
+        recipient: attendeeEmail,
+        status: 'received',
+      });
+    }
+    console.log(`📅 Booking CANCELLED: ${uid}`);
+  } else {
+    console.log(`Cal.com webhook: onbekend event ${trigger}, genegeerd`);
+  }
+  res.json({ ok: true });
+});
 
 // === AUTH ENDPOINTS ===
 const loginLimiter = rateLimit({
@@ -118,6 +197,8 @@ app.get('/api/dashboard', (req, res) => {
     pending_count: db.countPendingActions(),
     unread_count: db.getTotalUnreadCount(),
     unread_by_lead: db.getUnreadByLead(),
+    upcoming_bookings_count: db.getUpcomingBookingsCount(),
+    leads_with_booking: db.getLeadIdsWithUpcomingBooking(),
     stage_stats: db.getStageStats(),
   });
 });
@@ -151,9 +232,15 @@ app.get('/api/leads/:id', (req, res) => {
   parseLeadList([lead]);
   lead.communications = db.getLeadCommunications(lead.id);
   lead.campaigns = db.getLeadCampaigns(lead.id);
+  lead.bookings = db.getLeadBookings(lead.id);
   // Mark alle inbound comms als gelezen — Robert kijkt nu naar de lead
   db.markLeadCommunicationsRead(lead.id);
   res.json(lead);
+});
+
+// === BOOKINGS ===
+app.get('/api/bookings', (_, res) => {
+  res.json(db.getBookings());
 });
 
 app.patch('/api/leads/:id', (req, res) => {
@@ -522,7 +609,7 @@ app.delete('/api/cities/:id', (req, res) => {
 // === SETTINGS ===
 app.get('/api/settings', (_, res) => res.json(db.getAllSettings()));
 app.post('/api/settings', (req, res) => {
-  const allowed = ['autopilot_enabled', 'searches_per_hour', 'max_results_per_search', 'repeat_interval_days', 'night_mode', 'sender_name', 'sender_email', 'reply_to', 'company_name', 'signature', 'auto_add_high_score_to_funnel', 'high_score_threshold'];
+  const allowed = ['autopilot_enabled', 'searches_per_hour', 'max_results_per_search', 'repeat_interval_days', 'night_mode', 'sender_name', 'sender_email', 'reply_to', 'company_name', 'signature', 'auto_add_high_score_to_funnel', 'high_score_threshold', 'meeting_booking_url'];
   for (const k of Object.keys(req.body)) {
     if (allowed.includes(k)) db.setSetting(k, req.body[k]);
   }

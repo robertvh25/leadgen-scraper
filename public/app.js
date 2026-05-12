@@ -104,6 +104,7 @@ function switchView(view, data = {}) {
     'all-leads': 'Alle leads',
     funnel: 'Funnel',
     pending: 'Inbox — ongelezen mails & AI-voorstellen',
+    bookings: 'Boekingen — Cal.com afspraken',
     projects: 'Projecten',
     branches: 'Branches',
     cities: 'Steden',
@@ -120,6 +121,7 @@ function switchView(view, data = {}) {
   if (view === 'all-leads') loadAllLeads();
   if (view === 'funnel') loadFunnel();
   if (view === 'pending') loadPending();
+  if (view === 'bookings') loadBookings();
   if (view === 'branches') loadBranches();
   if (view === 'cities') loadCities();
   if (view === 'templates') loadTemplatesList();
@@ -152,6 +154,9 @@ async function loadDashboard() {
     $('#navPendingCount').textContent = combined;
     // Bewaar voor lead-card rendering in funnel
     state.unreadByLead = data.unread_by_lead || {};
+    state.leadsWithBooking = new Set(data.leads_with_booking || []);
+    const navBookings = $('#navBookingsCount');
+    if (navBookings) navBookings.textContent = data.upcoming_bookings_count || 0;
 
     const grid = $('#topLeadsGrid');
     if (data.new_today.length === 0) {
@@ -411,7 +416,7 @@ async function openLeadDetail(id) {
 
       <div class="detail-actions">
         ${emails.length > 0 ? `<button onclick="openSendDialog(${lead.id}, 'email')">📧 Email versturen</button>` : `<button disabled title="Geen email">📧 Email versturen</button>`}
-        ${emails.length > 0 ? `<button class="secondary" onclick="createBriefingForLead(${lead.id})">📋 Briefing-link maken</button>` : ''}
+        ${emails.length > 0 && ['engaged', 'meeting_planned', 'briefing_sent'].includes(lead.stage) ? `<button class="secondary" onclick="createBriefingForLead(${lead.id})">${lead.stage === 'briefing_sent' ? '🔄 Opnieuw versturen briefing' : '📋 Briefing-link maken'}</button>` : ''}
         ${phone ? `<button class="secondary" onclick="openSendDialog(${lead.id}, 'whatsapp')">💬 WhatsApp</button>` : ''}
         ${phone ? `<a href="tel:${escapeHtml(phone)}" style="text-decoration:none;"><button class="secondary">📞 Bel</button></a>` : ''}
         <button class="secondary" onclick="moveLeadToStage(${lead.id})">→ Naar funnel</button>
@@ -695,9 +700,16 @@ async function loadFunnel() {
         <div class="kanban-cards">
           ${grouped[stage.id].map(d => {
             const unread = (state.unreadByLead && state.unreadByLead[d.id]) || 0;
+            const hasBooking = state.leadsWithBooking && state.leadsWithBooking.has(d.id);
+            const borderStyle = unread > 0
+              ? 'border-left:3px solid #f5b800;background:#fffcf2;'
+              : (hasBooking ? 'border-left:3px solid var(--accent);' : '');
             return `
-            <div class="kanban-card${unread > 0 ? ' has-unread' : ''}" onclick="openLeadDetail(${d.id})" style="${unread > 0 ? 'border-left:3px solid #f5b800;background:#fffcf2;' : ''}">
-              <div class="name">${escapeHtml(d.name)} ${unread > 0 ? `<span title="${unread} ongelezen mail(s)" style="display:inline-block;background:#f5b800;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px;">📬 ${unread}</span>` : ''}</div>
+            <div class="kanban-card" onclick="openLeadDetail(${d.id})" style="${borderStyle}">
+              <div class="name">${escapeHtml(d.name)}
+                ${unread > 0 ? `<span title="${unread} ongelezen mail(s)" style="display:inline-block;background:#f5b800;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px;">📬 ${unread}</span>` : ''}
+                ${hasBooking ? `<span title="Meeting geboekt" style="display:inline-block;background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px;">📅</span>` : ''}
+              </div>
               <div class="meta">
                 <span class="score-mini ${scoreClass(d.replacement_score)}">${d.replacement_score === null ? '—' : d.replacement_score}</span>
                 ${d.city_name ? escapeHtml(d.city_name) : ''}
@@ -708,6 +720,42 @@ async function loadFunnel() {
         </div>
       </div>
     `).join('');
+  } catch (e) { console.error(e); }
+}
+
+// === BOOKINGS ===
+async function loadBookings() {
+  try {
+    const bookings = await api('/api/bookings');
+    const list = $('#bookingsList');
+    if (!bookings || bookings.length === 0) {
+      list.innerHTML = '<div class="empty"><h3>Nog geen boekingen</h3><p>Afspraken via cal.aitomade.nl verschijnen hier automatisch zodra ze worden geboekt</p></div>';
+      return;
+    }
+    const now = Date.now();
+    const upcoming = bookings.filter(b => b.scheduled_at && new Date(b.scheduled_at).getTime() >= now && b.status === 'confirmed');
+    const past = bookings.filter(b => !upcoming.includes(b));
+    const renderCard = (b) => {
+      const dt = b.scheduled_at ? new Date(b.scheduled_at) : null;
+      const dtLabel = dt ? dt.toLocaleString('nl-NL', { dateStyle: 'full', timeStyle: 'short' }) : '—';
+      const cancelled = b.status === 'cancelled';
+      return `
+        <div class="card" style="${cancelled ? 'opacity:.55;text-decoration:line-through;' : ''}border-left:3px solid var(--accent);">
+          <div class="card-title">
+            <span class="pill" style="background:var(--accent-soft);color:var(--accent-strong);">📅 ${escapeHtml(b.event_type || 'meeting')}</span>
+            ${cancelled ? '<span class="pill" style="background:#fee;color:#c00;">geannuleerd</span>' : ''}
+            <span style="font-size:12px;color:var(--text-faint);margin-left:auto;">${escapeHtml(dtLabel)}</span>
+          </div>
+          <div style="font-size:14px;font-weight:600;margin:6px 0 4px;">${b.lead_id ? `<a href="#" onclick="openLeadDetail(${b.lead_id});return false;" style="color:var(--accent);text-decoration:none;">${escapeHtml(b.lead_name || b.attendee_name)}</a>` : escapeHtml(b.attendee_name || '(geen lead-match)')}</div>
+          <div style="font-size:12px;color:var(--text-dim);">${escapeHtml(b.attendee_email || '')}</div>
+          ${b.meet_url ? `<div style="margin-top:8px;"><a href="${escapeHtml(b.meet_url)}" target="_blank" style="color:var(--accent-strong);font-size:13px;">🎥 ${escapeHtml(b.meet_url)}</a></div>` : ''}
+        </div>
+      `;
+    };
+    list.innerHTML = `
+      ${upcoming.length > 0 ? `<div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;text-transform:uppercase;letter-spacing:0.5px;">Aankomend (${upcoming.length})</div>${upcoming.map(renderCard).join('')}` : ''}
+      ${past.length > 0 ? `<div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin:24px 0 12px;text-transform:uppercase;letter-spacing:0.5px;">Verleden (${past.length})</div>${past.map(renderCard).join('')}` : ''}
+    `;
   } catch (e) { console.error(e); }
 }
 
@@ -1092,6 +1140,8 @@ async function loadSettings() {
   $('#setReplyTo').value = state.settings.reply_to || '';
   $('#setCompanyName').value = state.settings.company_name || '';
   $('#setSignature').value = state.settings.signature || '';
+  const mbu = $('#setMeetingBookingUrl');
+  if (mbu) mbu.value = state.settings.meeting_booking_url || '';
 }
 
 $('#saveSettingsBtn').addEventListener('click', async () => {
@@ -1111,6 +1161,7 @@ $('#saveSettingsBtn').addEventListener('click', async () => {
         reply_to: $('#setReplyTo').value,
         company_name: $('#setCompanyName').value,
         signature: $('#setSignature').value,
+        meeting_booking_url: $('#setMeetingBookingUrl')?.value || '',
       },
     });
     toast('✓ Opgeslagen');

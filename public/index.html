@@ -36,6 +36,10 @@
         <span class="icon">📬</span>Inbox
         <span class="badge warn" id="navPendingCount">0</span>
       </div>
+      <div class="nav-item" data-view="bookings">
+        <span class="icon">📅</span>Boekingen
+        <span class="badge" id="navBookingsCount">0</span>
+      </div>
       <div class="nav-item" data-view="projects">
         <span class="icon">📁</span>Projecten
       </div>
@@ -226,6 +230,12 @@
           <div class="card-grid" id="sequencesList"></div>
         </div>
 
+        <!-- BOOKINGS -->
+        <div class="view" id="view-bookings">
+          <p class="subtitle">Afspraken geboekt via Cal.com — komen automatisch binnen via webhook</p>
+          <div class="card-grid" id="bookingsList"></div>
+        </div>
+
         <!-- PROJECTS -->
         <div class="view" id="view-projects">
           <p class="subtitle">Projecten van leads die zijn omgezet (placeholder — nog te bouwen)</p>
@@ -327,6 +337,13 @@
               <div class="control" style="width:300px;">
                 <textarea id="setSignature" rows="3" placeholder="Met vriendelijke groet,&#10;Robert van Hoof"></textarea>
               </div>
+            </div>
+            <div class="setting-row">
+              <div class="info">
+                <div class="info-title">Cal.com booking URL</div>
+                <div class="info-desc">Wordt door AI gebruikt bij intent='meeting' — bv https://cal.aitomade.nl/ronald/intro</div>
+              </div>
+              <div class="control"><input type="url" id="setMeetingBookingUrl" placeholder="https://cal.aitomade.nl/ronald/intro"></div>
             </div>
           </div>
 

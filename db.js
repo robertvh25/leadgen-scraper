@@ -122,6 +122,24 @@ db.exec(`
     notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    calcom_uid TEXT UNIQUE,
+    event_type TEXT,
+    scheduled_at DATETIME,
+    end_at DATETIME,
+    attendee_email TEXT,
+    attendee_name TEXT,
+    meet_url TEXT,
+    location TEXT,
+    status TEXT DEFAULT 'confirmed',
+    raw_payload TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_bookings_lead ON bookings(lead_id);
+  CREATE INDEX IF NOT EXISTS idx_bookings_scheduled ON bookings(scheduled_at);
 `);
 
 // Migration helpers
@@ -334,6 +352,13 @@ const stmts = {
   getTotalUnreadCount: db.prepare(`SELECT COUNT(*) AS c FROM communications WHERE direction = 'inbound' AND read = 0`),
   getUnreadByLead: db.prepare(`SELECT lead_id, COUNT(*) AS c FROM communications WHERE direction = 'inbound' AND read = 0 GROUP BY lead_id`),
   getUnreadInboundComms: db.prepare(`SELECT c.*, l.name AS lead_name, l.replacement_score FROM communications c LEFT JOIN leads l ON c.lead_id = l.id WHERE c.direction = 'inbound' AND c.read = 0 ORDER BY c.sent_at DESC LIMIT 50`),
+  insertBooking: db.prepare(`INSERT OR REPLACE INTO bookings (lead_id, calcom_uid, event_type, scheduled_at, end_at, attendee_email, attendee_name, meet_url, location, status, raw_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  updateBookingStatus: db.prepare(`UPDATE bookings SET status = ? WHERE calcom_uid = ?`),
+  getBookings: db.prepare(`SELECT b.*, l.name AS lead_name, l.replacement_score, l.stage FROM bookings b LEFT JOIN leads l ON b.lead_id = l.id ORDER BY b.scheduled_at DESC LIMIT 200`),
+  getLeadBookings: db.prepare(`SELECT * FROM bookings WHERE lead_id = ? ORDER BY scheduled_at DESC`),
+  getUpcomingBookingsCount: db.prepare(`SELECT COUNT(*) AS c FROM bookings WHERE status = 'confirmed' AND scheduled_at >= datetime('now')`),
+  getBookingByUid: db.prepare(`SELECT * FROM bookings WHERE calcom_uid = ?`),
+  getLeadsWithUpcomingBooking: db.prepare(`SELECT DISTINCT lead_id FROM bookings WHERE status = 'confirmed' AND scheduled_at >= datetime('now') AND lead_id IS NOT NULL`),
   // Projects
   getProjects: db.prepare(`SELECT p.*, l.name AS lead_name, l.website AS lead_website FROM projects p LEFT JOIN leads l ON p.lead_id = l.id ORDER BY p.created_at DESC`),
   insertProject: db.prepare(`INSERT INTO projects (lead_id, name, status, notes) VALUES (?, ?, ?, ?)`),
@@ -466,6 +491,14 @@ module.exports = {
     return map;
   },
   getUnreadInboundComms: () => stmts.getUnreadInboundComms.all(),
+  // Bookings
+  upsertBooking: (b) => stmts.insertBooking.run(b.lead_id || null, b.calcom_uid, b.event_type || null, b.scheduled_at || null, b.end_at || null, b.attendee_email || null, b.attendee_name || null, b.meet_url || null, b.location || null, b.status || 'confirmed', b.raw_payload || null),
+  setBookingStatus: (uid, status) => stmts.updateBookingStatus.run(status, uid),
+  getBookings: () => stmts.getBookings.all(),
+  getLeadBookings: (id) => stmts.getLeadBookings.all(id),
+  getUpcomingBookingsCount: () => stmts.getUpcomingBookingsCount.get().c,
+  getBookingByUid: (uid) => stmts.getBookingByUid.get(uid),
+  getLeadIdsWithUpcomingBooking: () => stmts.getLeadsWithUpcomingBooking.all().map(r => r.lead_id),
   // Projects
   getProjects: () => stmts.getProjects.all(),
   addProject: (p) => stmts.insertProject.run(p.lead_id || null, p.name, p.status || 'planning', p.notes || ''),
