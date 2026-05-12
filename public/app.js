@@ -8,9 +8,7 @@ const STAGES = [
   { id: 'engaged', label: 'In gesprek', color: 'var(--warn)' },
   { id: 'meeting_planned', label: 'Meeting gepland', color: 'var(--info)' },
   { id: 'briefing_sent', label: 'Briefing verstuurd', color: 'var(--accent)' },
-  { id: 'quote_sent', label: 'Offerte verstuurd', color: 'var(--purple)' },
-  { id: 'signed', label: 'Getekend', color: 'var(--success)' },
-  { id: 'project', label: 'Project', color: 'var(--accent)' },
+  { id: 'project', label: 'Project', color: 'var(--success)' },
   { id: 'lost', label: 'Verloren', color: 'var(--danger)' },
 ];
 
@@ -409,6 +407,7 @@ async function openLeadDetail(id) {
 
       <div class="detail-actions">
         ${emails.length > 0 ? `<button onclick="openSendDialog(${lead.id}, 'email')">📧 Email versturen</button>` : `<button disabled title="Geen email">📧 Email versturen</button>`}
+        ${emails.length > 0 ? `<button class="secondary" onclick="createBriefingForLead(${lead.id})">📋 Briefing-link maken</button>` : ''}
         ${phone ? `<button class="secondary" onclick="openSendDialog(${lead.id}, 'whatsapp')">💬 WhatsApp</button>` : ''}
         ${phone ? `<a href="tel:${escapeHtml(phone)}" style="text-decoration:none;"><button class="secondary">📞 Bel</button></a>` : ''}
         <button class="secondary" onclick="moveLeadToStage(${lead.id})">→ Naar funnel</button>
@@ -540,6 +539,17 @@ window.saveLeadNotes = async (id) => {
   const notes = $('#leadNotes').value;
   await api(`/api/leads/${id}`, { method: 'PATCH', body: { notes } });
   toast('✓ Opgeslagen');
+};
+window.createBriefingForLead = async (id) => {
+  if (!confirm('Briefing-link maken en als mail-voorstel in Te bevestigen plaatsen?\n\nDe link wordt aangemaakt op briefing.aitomade.nl en gerendert met je "Briefing-link verzenden" template. Je kan de tekst nog aanpassen voor je verstuurt.')) return;
+  try {
+    toast('Bezig met aanmaken…');
+    const res = await api(`/api/leads/${id}/create-briefing`, { method: 'POST' });
+    toast('✓ Briefing-link aangemaakt — controleer in Te bevestigen', 'success');
+    switchView('pending');
+  } catch (e) {
+    toast('Fout: ' + e.message, 'error');
+  }
 };
 window.editLeadEmails = async (id) => {
   const lead = await api(`/api/leads/${id}`);

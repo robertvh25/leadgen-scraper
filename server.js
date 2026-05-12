@@ -18,6 +18,7 @@ const db = require('./db');
 const scheduler = require('./scheduler');
 const imapWatcher = require('./lib/imap-watcher');
 const autoSend = require('./lib/auto-send');
+const briefingClient = require('./lib/briefing-client');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -165,7 +166,7 @@ app.patch('/api/leads/:id', (req, res) => {
   }
   if (typeof req.body.stage === 'string') {
     const newStage = req.body.stage;
-    const valid = ['new', 'contacted', 'engaged', 'meeting_planned', 'briefing_sent', 'quote_sent', 'signed', 'project', 'lost'];
+    const valid = ['new', 'contacted', 'engaged', 'meeting_planned', 'briefing_sent', 'project', 'lost'];
     if (!valid.includes(newStage)) return res.status(400).json({ error: 'Ongeldige stage' });
     db.updateLeadStage(id, newStage);
     if (newStage !== 'new' && newStage !== lead.stage) {
@@ -190,6 +191,52 @@ app.post('/api/leads/:id/analyze', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.post('/api/leads/:id/create-briefing', async (req, res) => {
+  const lead = db.getLead(parseInt(req.params.id));
+  if (!lead) return res.status(404).json({ error: 'Niet gevonden' });
+  parseLeadList([lead]);
+  const emails = lead.emails || [];
+  const recipient = emails[0];
+  if (!recipient) return res.status(400).json({ error: 'Lead heeft geen email-adres. Voeg er een toe via ✏️ aanpassen.' });
+
+  // Vind de briefing-template
+  const templates = db.getTemplates();
+  const tmpl = templates.find(t => t.name === 'Briefing-link verzenden') || templates.find(t => /briefing/i.test(t.name));
+  if (!tmpl) return res.status(400).json({ error: 'Geen briefing-template gevonden in Templates' });
+
+  // Genereer briefing-link via briefing-app API
+  let briefing;
+  try {
+    briefing = await briefingClient.createBriefingLink({ companyName: lead.name, source: 'leadgen-manual' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Briefing-app API faalde: ' + err.message });
+  }
+
+  // Render template met briefing_link extra var
+  const subject = render(tmpl.subject || '', lead, { briefing_link: briefing.url });
+  const body = render(tmpl.body, lead, { briefing_link: briefing.url });
+
+  // Queue als pending (Robert reviewt + verstuurt). Stage advance gebeurt pas bij approve.
+  const result = db.addPendingAction({
+    lead_id: lead.id,
+    type: 'email',
+    template_id: tmpl.id,
+    rendered_subject: subject,
+    rendered_body: body,
+    recipient,
+    scheduled_for: new Date().toISOString(),
+    auto_send: 0,
+    intent: 'direct_start',
+  });
+
+  res.json({
+    ok: true,
+    briefing_url: briefing.url,
+    existed: briefing.existed,
+    pending_id: result.lastInsertRowid,
+  });
 });
 
 app.post('/api/leads/:id/screenshot', async (req, res) => {
@@ -386,10 +433,15 @@ app.post('/api/pending/:id/approve', async (req, res) => {
     }
     db.updatePendingActionStatus(id, 'sent');
     if (action.campaign_id) db.advanceCampaign(action.campaign_id);
-    // Funnel auto-progress op basis van AI-intent bij email_reply
-    if (action.type === 'email_reply' && action.lead_id) {
-      if (action.intent === 'meeting') db.advanceLeadStage(action.lead_id, 'meeting_planned');
-      else if (action.intent === 'direct_start') db.advanceLeadStage(action.lead_id, 'briefing_sent');
+    // Funnel auto-progress op basis van AI-intent
+    if (action.lead_id) {
+      if (action.type === 'email_reply') {
+        if (action.intent === 'meeting') db.advanceLeadStage(action.lead_id, 'meeting_planned');
+        else if (action.intent === 'no_interest') db.advanceLeadStage(action.lead_id, 'lost');
+      } else if (action.type === 'email' && action.intent === 'direct_start') {
+        // Manuele briefing-link mail is daadwerkelijk verstuurd → briefing_sent
+        db.advanceLeadStage(action.lead_id, 'briefing_sent');
+      }
     }
     res.json({ ok: true });
   } catch (err) {

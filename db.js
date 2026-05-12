@@ -139,8 +139,7 @@ addColumnIfMissing('pending_actions', 'in_reply_to_message_id', 'TEXT');
 addColumnIfMissing('pending_actions', 'intent', 'TEXT');
 
 const STAGE_ORDER = {
-  new: 0, contacted: 1, engaged: 2, meeting_planned: 3, briefing_sent: 4,
-  quote_sent: 5, signed: 6, project: 7,
+  new: 0, contacted: 1, engaged: 2, meeting_planned: 3, briefing_sent: 4, project: 5,
 };
 
 // Set default stage for any lead without one (existing leads)
@@ -225,6 +224,29 @@ Als het antwoord "kan beter" is, laat me dan vrijblijvend zien hoe een nieuwe we
   }
 }
 seedDefaults();
+
+// Idempotent: zorg dat de briefing-template altijd bestaat, ook in installs van vóór v4.12
+(function ensureBriefingTemplate() {
+  const exists = db.prepare(`SELECT id FROM templates WHERE name = ?`).get('Briefing-link verzenden');
+  if (exists) return;
+  db.prepare(`INSERT INTO templates (name, type, subject, body) VALUES (?, ?, ?, ?)`).run(
+    'Briefing-link verzenden',
+    'email',
+    'Uw persoonlijke briefing-link — {{settings.company_name}}',
+`Hallo,
+
+Bedankt voor uw interesse. Hieronder vindt u uw persoonlijke briefing-link:
+
+{{briefing_link}}
+
+Op deze pagina kiest u uw pakket en vult u stap voor stap de gegevens van uw bedrijf in. U ziet meteen welke prijs daarbij hoort — geen verborgen kosten. Tussentijds afsluiten kan, uw antwoorden worden bewaard.
+
+Vragen? Reageer op deze mail of stuur me uw telefoonnummer, dan bel ik u even.
+
+{{settings.signature}}`
+  );
+  console.log("✓ Default briefing-template aangemaakt ('Briefing-link verzenden')");
+})();
 
 function syncQueue() {
   const branches = db.prepare(`SELECT name FROM branches WHERE enabled = 1`).all();
