@@ -284,6 +284,40 @@ app.post('/api/leads/:id/analyze', async (req, res) => {
   }
 });
 
+app.post('/api/leads/:id/start-funnel', async (req, res) => {
+  const lead = db.getLead(parseInt(req.params.id));
+  if (!lead) return res.status(404).json({ error: 'Niet gevonden' });
+  parseLeadList([lead]);
+  const emails = lead.emails || [];
+  const recipient = emails[0];
+  if (!recipient) return res.status(400).json({ error: 'Lead heeft geen email-adres. Voeg er een toe via ✏️ aanpassen.' });
+  if (lead.stage && lead.stage !== 'new') return res.status(400).json({ error: `Lead staat al op stage '${lead.stage}', niet meer 'new'` });
+
+  // Vind eerste enabled sequence met trigger_stage='contacted'
+  const seqs = db.getSequences().filter(s => s.enabled && s.trigger_stage === 'contacted');
+  const seq = seqs[0];
+  if (!seq) return res.status(400).json({ error: 'Geen actieve sequence gevonden met trigger contacted' });
+  const steps = db.getSequenceSteps(seq.id);
+  const firstStep = steps[0];
+  if (!firstStep) return res.status(400).json({ error: 'Sequence heeft geen stappen' });
+  const tmpl = db.getTemplate(firstStep.template_id);
+  if (!tmpl) return res.status(400).json({ error: 'Template van eerste stap niet gevonden' });
+
+  // Render + direct verzenden (bypassed pending — Robert wil meteen mail uit)
+  const subject = render(tmpl.subject || '', lead);
+  const body = render(tmpl.body, lead);
+  try {
+    await sendEmail({ to: recipient, subject, body, leadId: lead.id });
+  } catch (err) {
+    return res.status(500).json({ error: 'Mail-versturen faalde: ' + err.message });
+  }
+  // sendEmail doet al advanceLeadStage naar 'contacted' + logCommunication.
+  // Start de campaign zodat follow-up stappen (delay>0) door sequence-engine worden gepland.
+  db.startLeadCampaign(lead.id, seq.id);
+  db.advanceCampaign(db.getLeadCampaigns(lead.id).find(c => c.sequence_id === seq.id)?.id);
+  res.json({ ok: true, message: 'Lead in funnel + eerste mail verzonden' });
+});
+
 app.post('/api/leads/:id/create-briefing', async (req, res) => {
   const lead = db.getLead(parseInt(req.params.id));
   if (!lead) return res.status(404).json({ error: 'Niet gevonden' });

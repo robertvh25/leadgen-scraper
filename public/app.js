@@ -230,6 +230,7 @@ function renderLeadCard(l) {
           ${issues.length > visible.length ? `<span class="issue-tag warn">+${issues.length - visible.length}</span>` : ''}
         </div>
         <div class="lead-actions">
+          ${(!l.stage || l.stage === 'new') ? `<button class="tiny" onclick="event.stopPropagation(); startLeadFunnel(${l.id})" title="In funnel zetten + eerste mail versturen">→ Funnel</button>` : ''}
           <button class="tiny secondary" onclick="event.stopPropagation(); openLeadDetail(${l.id})">Open →</button>
         </div>
       </div>
@@ -415,7 +416,8 @@ async function openLeadDetail(id) {
       </div>
 
       <div class="detail-actions">
-        ${emails.length > 0 ? `<button onclick="openSendDialog(${lead.id}, 'email')">📧 Email versturen</button>` : `<button disabled title="Geen email">📧 Email versturen</button>`}
+        ${emails.length > 0 && (!lead.stage || lead.stage === 'new') ? `<button onclick="startLeadFunnel(${lead.id})" style="background:var(--accent);color:#fff;">→ Start funnel (eerste mail uit)</button>` : ''}
+        ${emails.length > 0 ? `<button class="${(!lead.stage || lead.stage === 'new') ? 'secondary' : ''}" onclick="openSendDialog(${lead.id}, 'email')">📧 Email versturen</button>` : `<button disabled title="Geen email">📧 Email versturen</button>`}
         ${emails.length > 0 && ['engaged', 'meeting_planned', 'briefing_sent'].includes(lead.stage) ? `<button class="secondary" onclick="createBriefingForLead(${lead.id})">${lead.stage === 'briefing_sent' ? '🔄 Opnieuw versturen briefing' : '📋 Briefing-link maken'}</button>` : ''}
         ${phone ? `<button class="secondary" onclick="openSendDialog(${lead.id}, 'whatsapp')">💬 WhatsApp</button>` : ''}
         ${phone ? `<a href="tel:${escapeHtml(phone)}" style="text-decoration:none;"><button class="secondary">📞 Bel</button></a>` : ''}
@@ -575,6 +577,21 @@ window.saveLeadNotes = async (id) => {
   const notes = $('#leadNotes').value;
   await api(`/api/leads/${id}`, { method: 'PATCH', body: { notes } });
   toast('✓ Opgeslagen');
+};
+window.startLeadFunnel = async (id) => {
+  if (!confirm('Lead in funnel zetten en direct de eerste outreach-mail versturen?\n\nDe lead krijgt vanuit de "Standaard outreach" sequence (template "Eerste contact"). Follow-up stappen worden door de sequence-engine ingepland.')) return;
+  try {
+    toast('Bezig met versturen…');
+    await api(`/api/leads/${id}/start-funnel`, { method: 'POST' });
+    toast('✓ In funnel + mail verzonden', 'success');
+    // Refresh huidige view
+    if (state.view === 'leads') loadLeads();
+    else if (state.view === 'all-leads') loadAllLeads();
+    else if (state.view === 'lead-detail') openLeadDetail(id);
+    else if (state.view === 'dashboard') loadDashboard();
+  } catch (e) {
+    toast('Fout: ' + e.message, 'error');
+  }
 };
 window.createBriefingForLead = async (id) => {
   if (!confirm('Briefing-link maken en als mail-voorstel in Te bevestigen plaatsen?\n\nDe link wordt aangemaakt op briefing.aitomade.nl en gerendert met je "Briefing-link verzenden" template. Je kan de tekst nog aanpassen voor je verstuurt.')) return;
