@@ -5,6 +5,7 @@ const { takeScreenshot } = require('./lib/screenshot');
 const sequenceEngine = require('./lib/sequence-engine');
 const { sendEmail } = require('./lib/email-sender');
 const { render } = require('./lib/template-renderer');
+const sendWindow = require('./lib/send-window');
 const db = require('./db');
 
 let running = false;
@@ -100,9 +101,26 @@ async function runOneJob() {
                 } else {
                   const subject = render(tmpl.subject || '', fresh);
                   const body = render(tmpl.body, fresh);
-                  await sendEmail({ to: recipient, subject, body, leadId: fresh.id });
-                  // sendEmail doet al advanceLeadStage('contacted') + logCommunication
-                  // Start campaign zodat follow-ups (delay>0) door sequence-engine worden gepland
+                  const now = new Date();
+                  if (sendWindow.isInSendWindow(now)) {
+                    await sendEmail({ to: recipient, subject, body, leadId: fresh.id });
+                    console.log(`  ↪ Auto-funnel: "${fresh.name}" (score ${analysis.replacement_score}) → contacted + eerste mail verzonden`);
+                  } else {
+                    const at = sendWindow.nextSendableTime(now);
+                    db.addPendingAction({
+                      lead_id: fresh.id,
+                      type: 'email',
+                      template_id: tmpl.id,
+                      rendered_subject: subject,
+                      rendered_body: body,
+                      recipient,
+                      scheduled_for: at.toISOString(),
+                      auto_send: 1,
+                    });
+                    db.advanceLeadStage(fresh.id, 'contacted');
+                    console.log(`  ↪ Auto-funnel: "${fresh.name}" (score ${analysis.replacement_score}) → contacted, mail ingepland voor ${at.toISOString()}`);
+                  }
+                  // Start campaign voor follow-ups
                   const seqs = db.getSequences().filter(s => s.enabled && s.trigger_stage === 'contacted');
                   const seq = seqs[0];
                   if (seq) {
@@ -110,7 +128,6 @@ async function runOneJob() {
                     const camp = db.getLeadCampaigns(fresh.id).find(c => c.sequence_id === seq.id);
                     if (camp) db.advanceCampaign(camp.id);
                   }
-                  console.log(`  ↪ Auto-funnel: "${fresh.name}" (score ${analysis.replacement_score}) → contacted + eerste mail verzonden`);
                 }
               }
             } catch (e) {

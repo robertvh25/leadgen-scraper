@@ -20,6 +20,7 @@ const imapWatcher = require('./lib/imap-watcher');
 const autoSend = require('./lib/auto-send');
 const briefingClient = require('./lib/briefing-client');
 const leadSync = require('./lib/lead-sync');
+const sendWindow = require('./lib/send-window');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -306,26 +307,42 @@ app.post('/api/leads/:id/start-funnel', async (req, res) => {
   const seqs = db.getSequences().filter(s => s.enabled && s.trigger_stage === 'contacted');
   const seq = seqs[0];
 
-  // Render + direct verzenden (bypassed pending — Robert wil meteen mail uit)
   const subject = render(tmpl.subject || '', lead);
   const body = render(tmpl.body, lead);
-  try {
-    await sendEmail({ to: recipient, subject, body, leadId: lead.id });
-  } catch (err) {
-    return res.status(500).json({ error: 'Mail-versturen faalde: ' + err.message });
+  const now = new Date();
+  const inWindow = sendWindow.isInSendWindow(now);
+  let resultMsg;
+
+  if (inWindow) {
+    try {
+      await sendEmail({ to: recipient, subject, body, leadId: lead.id });
+    } catch (err) {
+      return res.status(500).json({ error: 'Mail-versturen faalde: ' + err.message });
+    }
+    resultMsg = `Eerste mail verzonden: "${tmpl.name}".`;
+  } else {
+    const at = sendWindow.nextSendableTime(now);
+    db.addPendingAction({
+      lead_id: lead.id,
+      type: 'email',
+      template_id: tmpl.id,
+      rendered_subject: subject,
+      rendered_body: body,
+      recipient,
+      scheduled_for: at.toISOString(),
+      auto_send: 1,
+    });
+    // Lead alvast in funnel zodat 'ie niet meer in Nieuwe leads-overzicht staat
+    db.advanceLeadStage(lead.id, 'contacted');
+    resultMsg = `Mail "${tmpl.name}" ingepland — wordt verzonden bij volgende venster (${at.toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}).`;
   }
-  // sendEmail doet al advanceLeadStage naar 'contacted' + logCommunication.
-  // Start de campaign zodat follow-up stappen (delay>0) door sequence-engine worden gepland.
-  // Skip de eerste stap (al verstuurd) door current_step naar 1 te zetten.
+
   if (seq) {
     db.startLeadCampaign(lead.id, seq.id);
     const camp = db.getLeadCampaigns(lead.id).find(c => c.sequence_id === seq.id);
     if (camp) db.advanceCampaign(camp.id);
   }
-  res.json({
-    ok: true,
-    message: `Eerste mail verzonden: "${tmpl.name}". Follow-up stappen staan in de sequence (zichtbaar in Inbox zodra de delay verstrijkt).`,
-  });
+  res.json({ ok: true, message: resultMsg });
 });
 
 app.post('/api/leads/:id/create-briefing', async (req, res) => {
@@ -382,44 +399,46 @@ app.post('/api/leads/:id/create-briefing', async (req, res) => {
 
 app.post('/api/leads/bulk-funnel', async (req, res) => {
   const threshold = parseInt(db.getSetting('high_score_threshold') || '60');
-  // Vind alle 'new' leads met score >= threshold die ook een email hebben
   const candidates = db.db.prepare(`SELECT id, name FROM leads WHERE stage = 'new' AND replacement_score >= ? AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(threshold);
-  res.json({ ok: true, queued: candidates.length, message: `Batch gestart voor ${candidates.length} hoge-score leads — eerste mail wordt direct verzonden` });
-  (async () => {
-    let sent = 0, skipped = 0, failed = 0;
-    const templates = db.getTemplates();
-    const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')
-      || templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
-    if (!tmpl) {
-      console.error('Bulk-funnel: geen Eerste contact-template gevonden');
-      return;
-    }
-    const seqs = db.getSequences().filter(s => s.enabled && s.trigger_stage === 'contacted');
-    const seq = seqs[0];
-    for (const c of candidates) {
-      try {
-        const lead = db.getLead(c.id);
-        if (!lead || lead.stage !== 'new') { skipped++; continue; }
-        parseLeadList([lead]);
-        const recipient = (lead.emails || [])[0];
-        if (!recipient) { skipped++; continue; }
-        const subject = render(tmpl.subject || '', lead);
-        const body = render(tmpl.body, lead);
-        await sendEmail({ to: recipient, subject, body, leadId: lead.id });
-        if (seq) {
-          db.startLeadCampaign(lead.id, seq.id);
-          const camp = db.getLeadCampaigns(lead.id).find(x => x.sequence_id === seq.id);
-          if (camp) db.advanceCampaign(camp.id);
-        }
-        sent++;
-        await new Promise(r => setTimeout(r, 2000)); // throttle 2s tussen mails
-      } catch (e) {
-        console.error(`Bulk-funnel fout voor lead #${c.id} "${c.name}":`, e.message);
-        failed++;
-      }
-    }
-    console.log(`✓ Bulk-funnel klaar: ${sent} verzonden, ${skipped} geskipt, ${failed} mislukt`);
-  })();
+  const templates = db.getTemplates();
+  const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')
+    || templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
+  if (!tmpl) return res.status(400).json({ error: 'Geen "Eerste contact"-template gevonden' });
+
+  // Spreid mails 5 min uit elkaar; respecteer send-window
+  let cursor = sendWindow.nextSendableTime(new Date());
+  const SPACING_MS = 5 * 60 * 1000;
+  let queued = 0;
+
+  for (const c of candidates) {
+    const lead = db.getLead(c.id);
+    if (!lead || lead.stage !== 'new') continue;
+    parseLeadList([lead]);
+    const recipient = (lead.emails || [])[0];
+    if (!recipient) continue;
+    const subject = render(tmpl.subject || '', lead);
+    const body = render(tmpl.body, lead);
+    // Schuif cursor naar volgende sendable tijd als hij uit window glijdt
+    cursor = sendWindow.nextSendableTime(cursor);
+    db.addPendingAction({
+      lead_id: lead.id,
+      type: 'email',
+      template_id: tmpl.id,
+      rendered_subject: subject,
+      rendered_body: body,
+      recipient,
+      scheduled_for: cursor.toISOString(),
+      auto_send: 1,
+    });
+    cursor = new Date(cursor.getTime() + SPACING_MS);
+    queued++;
+  }
+
+  const inWindow = sendWindow.isInSendWindow(new Date());
+  const msg = inWindow
+    ? `${queued} mails ingepland — eerste wordt nu verzonden, daarna elke 5 minuten één`
+    : `${queued} mails ingepland — eerste mail wordt verzonden bij volgende venster-opening (${sendWindow.describeWindow()})`;
+  res.json({ ok: true, queued, in_window: inWindow, message: msg });
 });
 
 app.post('/api/leads/regenerate-screenshots', async (req, res) => {
