@@ -556,25 +556,25 @@ app.get('/api/pending', (_, res) => {
   res.json(actions);
 });
 
-app.post('/api/pending/:id/approve', async (req, res) => {
-  const id = parseInt(req.params.id);
+// Internal helper: voer 1 pending action uit. Returns { ok, error? }
+async function executePendingAction(id) {
   const action = db.getPendingAction(id);
-  if (!action) return res.status(404).json({ error: 'Niet gevonden' });
-  if (action.status !== 'pending') return res.status(400).json({ error: 'Al verwerkt' });
+  if (!action) return { ok: false, error: 'Niet gevonden' };
+  if (action.status !== 'pending') return { ok: false, error: 'Al verwerkt' };
+  let recipient = action.recipient;
+  if (!recipient) {
+    const lead = db.getLead(action.lead_id);
+    if (lead) {
+      if (action.type === 'email' || action.type === 'email_reply') {
+        try { const emails = lead.emails ? JSON.parse(lead.emails) : []; recipient = emails[0]; } catch {}
+      } else if (action.type === 'whatsapp') { recipient = lead.phone; }
+    }
+  }
+  if (!recipient) {
+    db.updatePendingActionStatus(id, 'failed');
+    return { ok: false, error: 'Geen ontvanger' };
+  }
   try {
-    let recipient = action.recipient;
-    if (!recipient) {
-      const lead = db.getLead(action.lead_id);
-      if (lead) {
-        if (action.type === 'email') {
-          try { const emails = lead.emails ? JSON.parse(lead.emails) : []; recipient = emails[0]; } catch {}
-        } else if (action.type === 'whatsapp') { recipient = lead.phone; }
-      }
-    }
-    if (!recipient) {
-      db.updatePendingActionStatus(id, 'failed');
-      return res.status(400).json({ error: 'Geen ontvanger' });
-    }
     if (action.type === 'email' || action.type === 'email_reply') {
       await sendEmail({ to: recipient, subject: action.rendered_subject, body: action.rendered_body, leadId: action.lead_id, inReplyTo: action.in_reply_to_message_id || null });
     } else if (action.type === 'whatsapp') {
@@ -582,21 +582,41 @@ app.post('/api/pending/:id/approve', async (req, res) => {
     }
     db.updatePendingActionStatus(id, 'sent');
     if (action.campaign_id) db.advanceCampaign(action.campaign_id);
-    // Funnel auto-progress op basis van AI-intent
     if (action.lead_id) {
       if (action.type === 'email_reply') {
         if (action.intent === 'meeting') db.advanceLeadStage(action.lead_id, 'meeting_planned');
         else if (action.intent === 'no_interest') db.advanceLeadStage(action.lead_id, 'lost');
       } else if (action.type === 'email' && action.intent === 'direct_start') {
-        // Manuele briefing-link mail is daadwerkelijk verstuurd → briefing_sent
         db.advanceLeadStage(action.lead_id, 'briefing_sent');
       }
     }
-    res.json({ ok: true });
+    return { ok: true };
   } catch (err) {
     db.updatePendingActionStatus(id, 'failed');
-    res.status(500).json({ error: err.message });
+    return { ok: false, error: err.message };
   }
+}
+
+app.post('/api/pending/:id/approve', async (req, res) => {
+  const result = await executePendingAction(parseInt(req.params.id));
+  if (!result.ok) {
+    const code = result.error === 'Niet gevonden' ? 404 : (result.error === 'Al verwerkt' ? 400 : 500);
+    return res.status(code).json({ error: result.error });
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/pending/bulk-approve', async (req, res) => {
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+  if (ids.length === 0) return res.status(400).json({ error: 'Geen ids opgegeven' });
+  const results = [];
+  let sent = 0, failed = 0;
+  for (const id of ids) {
+    const r = await executePendingAction(id);
+    results.push({ id, ...r });
+    if (r.ok) sent++; else failed++;
+  }
+  res.json({ ok: true, sent, failed, results });
 });
 
 app.patch('/api/pending/:id', (req, res) => {

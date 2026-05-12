@@ -814,6 +814,14 @@ async function loadPending() {
     return;
   }
 
+  const bulkBar = `
+    <div id="inboxBulkBar" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:10px;font-size:13px;position:sticky;top:0;z-index:5;">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="inboxSelectAll" onclick="toggleSelectAllPending(this)"> <span>Selecteer alles</span></label>
+      <span style="color:var(--text-faint);" id="inboxSelectionCount">0 geselecteerd</span>
+      <button style="margin-left:auto;" onclick="bulkApprovePending()">✓ Verstuur geselecteerde</button>
+    </div>
+  `;
+
   const pendingHtml = actions.map(a => {
     const isAiReply = a.type === 'email_reply';
     const banner = isAiReply
@@ -823,13 +831,16 @@ async function loadPending() {
     <div class="pending-card" data-pending-id="${a.id}">
       ${banner}
       <div class="header">
-        <div>
-          <div style="font-weight:600;">${escapeHtml(a.lead_name)}</div>
-          <div style="font-size:11px; color:var(--text-faint);">
-            <span class="pill ${a.type}">${isAiReply ? 'AI-reply' : a.type}</span> →
-            ${escapeHtml(a.recipient || 'geen ontvanger')} · score: ${a.replacement_score || '—'}
+        <label style="display:flex;align-items:flex-start;gap:8px;flex:1;cursor:pointer;">
+          <input type="checkbox" class="pending-select" data-id="${a.id}" onclick="updateBulkSelectionCount()" style="margin-top:3px;">
+          <div>
+            <div style="font-weight:600;">${escapeHtml(a.lead_name)}</div>
+            <div style="font-size:11px; color:var(--text-faint);">
+              <span class="pill ${a.type}">${isAiReply ? 'AI-reply' : a.type}</span> →
+              ${escapeHtml(a.recipient || 'geen ontvanger')} · score: ${a.replacement_score || '—'}
+            </div>
           </div>
-        </div>
+        </label>
         <button class="ghost tiny" onclick="openLeadDetail(${a.lead_id})">Open lead →</button>
       </div>
       ${a.rendered_subject ? `<input type="text" class="pending-subject" data-id="${a.id}" value="${escapeHtml(a.rendered_subject)}" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;margin-bottom:6px;">` : ''}
@@ -842,8 +853,42 @@ async function loadPending() {
     </div>
   `;
   }).join('');
-  list.innerHTML = unreadHtml + pendingHtml;
+  list.innerHTML = unreadHtml + bulkBar + pendingHtml;
+  updateBulkSelectionCount();
 }
+window.toggleSelectAllPending = (cb) => {
+  document.querySelectorAll('.pending-select').forEach(el => { el.checked = cb.checked; });
+  updateBulkSelectionCount();
+};
+window.updateBulkSelectionCount = () => {
+  const selected = document.querySelectorAll('.pending-select:checked').length;
+  const total = document.querySelectorAll('.pending-select').length;
+  const counter = document.getElementById('inboxSelectionCount');
+  if (counter) counter.textContent = `${selected} van ${total} geselecteerd`;
+  const allBox = document.getElementById('inboxSelectAll');
+  if (allBox) allBox.checked = selected === total && total > 0;
+};
+window.bulkApprovePending = async () => {
+  const ids = [...document.querySelectorAll('.pending-select:checked')].map(el => parseInt(el.dataset.id));
+  if (ids.length === 0) return toast('Niets geselecteerd', 'error');
+  if (!confirm(`${ids.length} bericht(en) nu versturen?`)) return;
+  // Eerst eventuele bewerkingen opslaan
+  for (const id of ids) {
+    const card = document.querySelector(`[data-pending-id="${id}"]`);
+    if (card) {
+      const subject = card.querySelector('.pending-subject')?.value;
+      const body = card.querySelector('.pending-body')?.value;
+      if (subject !== undefined || body !== undefined) {
+        try { await api(`/api/pending/${id}`, { method: 'PATCH', body: { rendered_subject: subject, rendered_body: body } }); } catch {}
+      }
+    }
+  }
+  try {
+    const res = await api('/api/pending/bulk-approve', { method: 'POST', body: { ids } });
+    toast(`✓ ${res.sent} verstuurd${res.failed > 0 ? ` · ${res.failed} mislukt` : ''}`, res.failed ? 'error' : 'success');
+    loadPending();
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
 window.savePending = async (id) => {
   const card = document.querySelector(`[data-pending-id="${id}"]`);
   const subject = card.querySelector('.pending-subject')?.value;
