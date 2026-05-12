@@ -136,6 +136,12 @@ addColumnIfMissing('leads', 'stage', `TEXT DEFAULT 'new'`);
 addColumnIfMissing('leads', 'deal_added_at', 'DATETIME');
 addColumnIfMissing('pending_actions', 'auto_send', 'INTEGER DEFAULT 0');
 addColumnIfMissing('pending_actions', 'in_reply_to_message_id', 'TEXT');
+addColumnIfMissing('pending_actions', 'intent', 'TEXT');
+
+const STAGE_ORDER = {
+  new: 0, contacted: 1, engaged: 2, meeting_planned: 3, briefing_sent: 4,
+  quote_sent: 5, signed: 6, project: 7,
+};
 
 // Set default stage for any lead without one (existing leads)
 db.exec(`UPDATE leads SET stage = 'new' WHERE stage IS NULL OR stage = ''`);
@@ -287,7 +293,7 @@ const stmts = {
   advanceCampaign: db.prepare(`UPDATE lead_campaigns SET current_step = current_step + 1, last_action_at = datetime('now') WHERE id = ?`),
   completeCampaign: db.prepare(`UPDATE lead_campaigns SET status = 'completed', last_action_at = datetime('now') WHERE id = ?`),
   // Pending actions
-  insertPendingAction: db.prepare(`INSERT INTO pending_actions (lead_id, campaign_id, step_id, type, template_id, rendered_subject, rendered_body, recipient, scheduled_for, auto_send, in_reply_to_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  insertPendingAction: db.prepare(`INSERT INTO pending_actions (lead_id, campaign_id, step_id, type, template_id, rendered_subject, rendered_body, recipient, scheduled_for, auto_send, in_reply_to_message_id, intent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   getPendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name, l.website AS lead_website, l.replacement_score FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' ORDER BY pa.scheduled_for ASC LIMIT 50`),
   getDuePendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.auto_send = 1 AND pa.scheduled_for <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 20`),
   getPendingAction: db.prepare(`SELECT * FROM pending_actions WHERE id = ?`),
@@ -343,6 +349,16 @@ module.exports = {
   updateLeadScreenshot: (id, path) => stmts.updateLeadScreenshot.run(path, id),
   updateLeadEmails: (id, emails) => stmts.updateLeadEmails.run(JSON.stringify(emails || []), id),
   updateLeadStage: (id, stage) => stmts.updateLeadStage.run(stage, stage, id),
+  advanceLeadStage: (id, targetStage) => {
+    const lead = stmts.getLead.get(id);
+    if (!lead) return false;
+    if (lead.stage === 'lost') return false;
+    const cur = STAGE_ORDER[lead.stage || 'new'] ?? 0;
+    const tgt = STAGE_ORDER[targetStage] ?? -1;
+    if (tgt <= cur) return false;
+    stmts.updateLeadStage.run(targetStage, targetStage, id);
+    return true;
+  },
   getAllLeads: (f = {}) => {
     const minScore = f.minScore ?? null;
     const contacted = f.contacted ?? null;
@@ -395,7 +411,7 @@ module.exports = {
   advanceCampaign: (id) => stmts.advanceCampaign.run(id),
   completeCampaign: (id) => stmts.completeCampaign.run(id),
   // Pending
-  addPendingAction: (a) => stmts.insertPendingAction.run(a.lead_id, a.campaign_id || null, a.step_id || null, a.type, a.template_id || null, a.rendered_subject || null, a.rendered_body, a.recipient || null, a.scheduled_for || new Date().toISOString(), a.auto_send ? 1 : 0, a.in_reply_to_message_id || null),
+  addPendingAction: (a) => stmts.insertPendingAction.run(a.lead_id, a.campaign_id || null, a.step_id || null, a.type, a.template_id || null, a.rendered_subject || null, a.rendered_body, a.recipient || null, a.scheduled_for || new Date().toISOString(), a.auto_send ? 1 : 0, a.in_reply_to_message_id || null, a.intent || null),
   getPendingActions: () => stmts.getPendingActions.all(),
   getDuePendingActions: () => stmts.getDuePendingActions.all(),
   getPendingAction: (id) => stmts.getPendingAction.get(id),

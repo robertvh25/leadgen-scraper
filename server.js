@@ -165,7 +165,7 @@ app.patch('/api/leads/:id', (req, res) => {
   }
   if (typeof req.body.stage === 'string') {
     const newStage = req.body.stage;
-    const valid = ['new', 'contacted', 'engaged', 'quote_sent', 'signed', 'project', 'lost'];
+    const valid = ['new', 'contacted', 'engaged', 'meeting_planned', 'briefing_sent', 'quote_sent', 'signed', 'project', 'lost'];
     if (!valid.includes(newStage)) return res.status(400).json({ error: 'Ongeldige stage' });
     db.updateLeadStage(id, newStage);
     if (newStage !== 'new' && newStage !== lead.stage) {
@@ -386,6 +386,11 @@ app.post('/api/pending/:id/approve', async (req, res) => {
     }
     db.updatePendingActionStatus(id, 'sent');
     if (action.campaign_id) db.advanceCampaign(action.campaign_id);
+    // Funnel auto-progress op basis van AI-intent bij email_reply
+    if (action.type === 'email_reply' && action.lead_id) {
+      if (action.intent === 'meeting') db.advanceLeadStage(action.lead_id, 'meeting_planned');
+      else if (action.intent === 'direct_start') db.advanceLeadStage(action.lead_id, 'briefing_sent');
+    }
     res.json({ ok: true });
   } catch (err) {
     db.updatePendingActionStatus(id, 'failed');

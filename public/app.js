@@ -6,6 +6,8 @@ const STAGES = [
   { id: 'new', label: 'Nieuw', color: 'var(--text-faint)' },
   { id: 'contacted', label: 'Benaderd', color: 'var(--info)' },
   { id: 'engaged', label: 'In gesprek', color: 'var(--warn)' },
+  { id: 'meeting_planned', label: 'Meeting gepland', color: 'var(--info)' },
+  { id: 'briefing_sent', label: 'Briefing verstuurd', color: 'var(--accent)' },
   { id: 'quote_sent', label: 'Offerte verstuurd', color: 'var(--purple)' },
   { id: 'signed', label: 'Getekend', color: 'var(--success)' },
   { id: 'project', label: 'Project', color: 'var(--accent)' },
