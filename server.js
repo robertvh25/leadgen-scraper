@@ -116,6 +116,8 @@ app.get('/api/dashboard', (req, res) => {
     settings: db.getAllSettings(),
     new_today: parseLeadList(db.getTopLeadsToday()),
     pending_count: db.countPendingActions(),
+    unread_count: db.getTotalUnreadCount(),
+    unread_by_lead: db.getUnreadByLead(),
     stage_stats: db.getStageStats(),
   });
 });
@@ -149,6 +151,8 @@ app.get('/api/leads/:id', (req, res) => {
   parseLeadList([lead]);
   lead.communications = db.getLeadCommunications(lead.id);
   lead.campaigns = db.getLeadCampaigns(lead.id);
+  // Mark alle inbound comms als gelezen — Robert kijkt nu naar de lead
+  db.markLeadCommunicationsRead(lead.id);
   res.json(lead);
 });
 
@@ -388,6 +392,14 @@ app.delete('/api/sequences/:id', (req, res) => {
 app.post('/api/leads/:id/start-campaign', (req, res) => {
   const ok = sequenceEngine.startCampaignForLead(parseInt(req.params.id), req.body.sequence_id);
   res.json({ ok });
+});
+
+// === INBOX (combineerd ongelezen klant-mails + pending AI-voorstellen) ===
+app.get('/api/inbox', (_, res) => {
+  res.json({
+    unread_comms: db.getUnreadInboundComms(),
+    pending: db.getPendingActions(),
+  });
 });
 
 // === PENDING ACTIONS ===

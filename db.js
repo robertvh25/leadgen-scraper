@@ -137,6 +137,9 @@ addColumnIfMissing('leads', 'deal_added_at', 'DATETIME');
 addColumnIfMissing('pending_actions', 'auto_send', 'INTEGER DEFAULT 0');
 addColumnIfMissing('pending_actions', 'in_reply_to_message_id', 'TEXT');
 addColumnIfMissing('pending_actions', 'intent', 'TEXT');
+addColumnIfMissing('communications', 'read', 'INTEGER DEFAULT 0');
+// Bestaande outbound communications hoeven niet "ongelezen" te staan
+try { db.exec(`UPDATE communications SET read = 1 WHERE direction = 'outbound' AND (read = 0 OR read IS NULL)`); } catch {}
 
 const STAGE_ORDER = {
   new: 0, contacted: 1, engaged: 2, meeting_planned: 3, briefing_sent: 4, project: 5,
@@ -324,8 +327,13 @@ const stmts = {
   countPendingActions: db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending'`),
   findLeadByEmail: db.prepare(`SELECT * FROM leads WHERE emails IS NOT NULL AND emails LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT 1`),
   // Communications
-  insertCommunication: db.prepare(`INSERT INTO communications (lead_id, type, direction, subject, body, recipient, status, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+  insertCommunication: db.prepare(`INSERT INTO communications (lead_id, type, direction, subject, body, recipient, status, error, read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   getLeadCommunications: db.prepare(`SELECT * FROM communications WHERE lead_id = ? ORDER BY sent_at DESC LIMIT 100`),
+  markCommunicationRead: db.prepare(`UPDATE communications SET read = 1 WHERE id = ?`),
+  markLeadCommunicationsRead: db.prepare(`UPDATE communications SET read = 1 WHERE lead_id = ? AND direction = 'inbound' AND read = 0`),
+  getTotalUnreadCount: db.prepare(`SELECT COUNT(*) AS c FROM communications WHERE direction = 'inbound' AND read = 0`),
+  getUnreadByLead: db.prepare(`SELECT lead_id, COUNT(*) AS c FROM communications WHERE direction = 'inbound' AND read = 0 GROUP BY lead_id`),
+  getUnreadInboundComms: db.prepare(`SELECT c.*, l.name AS lead_name, l.replacement_score FROM communications c LEFT JOIN leads l ON c.lead_id = l.id WHERE c.direction = 'inbound' AND c.read = 0 ORDER BY c.sent_at DESC LIMIT 50`),
   // Projects
   getProjects: db.prepare(`SELECT p.*, l.name AS lead_name, l.website AS lead_website FROM projects p LEFT JOIN leads l ON p.lead_id = l.id ORDER BY p.created_at DESC`),
   insertProject: db.prepare(`INSERT INTO projects (lead_id, name, status, notes) VALUES (?, ?, ?, ?)`),
@@ -442,8 +450,22 @@ module.exports = {
   countPendingActions: () => stmts.countPendingActions.get().c,
   findLeadByEmail: (email) => stmts.findLeadByEmail.get(email.toLowerCase()),
   // Communications
-  logCommunication: (c) => stmts.insertCommunication.run(c.lead_id, c.type, c.direction || 'outbound', c.subject || null, c.body || null, c.recipient || null, c.status || 'sent', c.error || null),
+  logCommunication: (c) => {
+    const dir = c.direction || 'outbound';
+    const isRead = dir === 'outbound' ? 1 : 0;
+    return stmts.insertCommunication.run(c.lead_id, c.type, dir, c.subject || null, c.body || null, c.recipient || null, c.status || 'sent', c.error || null, isRead);
+  },
   getLeadCommunications: (id) => stmts.getLeadCommunications.all(id),
+  markCommunicationRead: (id) => stmts.markCommunicationRead.run(id),
+  markLeadCommunicationsRead: (leadId) => stmts.markLeadCommunicationsRead.run(leadId),
+  getTotalUnreadCount: () => stmts.getTotalUnreadCount.get().c,
+  getUnreadByLead: () => {
+    const rows = stmts.getUnreadByLead.all();
+    const map = {};
+    for (const r of rows) map[r.lead_id] = r.c;
+    return map;
+  },
+  getUnreadInboundComms: () => stmts.getUnreadInboundComms.all(),
   // Projects
   getProjects: () => stmts.getProjects.all(),
   addProject: (p) => stmts.insertProject.run(p.lead_id || null, p.name, p.status || 'planning', p.notes || ''),

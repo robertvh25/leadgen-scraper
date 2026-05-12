@@ -103,7 +103,7 @@ function switchView(view, data = {}) {
     leads: 'Hoge score leads',
     'all-leads': 'Alle leads',
     funnel: 'Funnel',
-    pending: 'Berichten te bevestigen',
+    pending: 'Inbox — ongelezen mails & AI-voorstellen',
     projects: 'Projecten',
     branches: 'Branches',
     cities: 'Steden',
@@ -147,7 +147,11 @@ async function loadDashboard() {
     const navAll = $('#navAllLeadsCount');
     if (navAll) navAll.textContent = data.stats.total_leads;
     $('#navFunnelCount').textContent = data.stats.in_funnel;
-    $('#navPendingCount').textContent = data.pending_count;
+    // Combineer pending AI-voorstellen + ongelezen klant-mails in één teller
+    const combined = (data.pending_count || 0) + (data.unread_count || 0);
+    $('#navPendingCount').textContent = combined;
+    // Bewaar voor lead-card rendering in funnel
+    state.unreadByLead = data.unread_by_lead || {};
 
     const grid = $('#topLeadsGrid');
     if (data.new_today.length === 0) {
@@ -509,19 +513,46 @@ function renderCommsList(comms) {
   if (!comms || comms.length === 0) {
     return '<div class="empty"><p>Nog geen communicatie</p></div>';
   }
-  return comms.map(c => `
-    <div class="card" style="cursor:default;">
-      <div class="card-title">
+  return comms.map(c => {
+    const isInbound = c.direction === 'inbound';
+    const arrow = isInbound ? '↘' : '→';
+    const partyLabel = isInbound ? 'Van' : 'Naar';
+    const directionPill = isInbound
+      ? '<span style="background:#fff3cd;color:#7a5b00;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">📥 Ontvangen</span>'
+      : '<span style="background:var(--accent-soft);color:var(--accent-strong);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">📤 Verzonden</span>';
+    const borderLeft = isInbound ? 'border-left:3px solid #f5b800;' : 'border-left:3px solid var(--accent);';
+    return `
+    <div class="comm-card" data-comm-id="${c.id}" style="${borderLeft}background:var(--surface);padding:12px;border-radius:8px;margin-bottom:10px;cursor:pointer;" onclick="toggleComm(${c.id})">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span class="pill ${c.type}">${c.type}</span>
+        ${directionPill}
         <span style="font-size:12px; color:var(--text-faint); margin-left:auto;">${timeAgo(c.sent_at)}</span>
       </div>
-      ${c.subject ? `<div style="font-size:13px; font-weight:500; margin:8px 0 4px;">${escapeHtml(c.subject)}</div>` : ''}
-      <div style="font-size:12px; color:var(--text-dim);">→ ${escapeHtml(c.recipient || '?')}</div>
-      ${c.body ? `<div class="card-preview">${escapeHtml(c.body.substring(0, 200))}${c.body.length > 200 ? '...' : ''}</div>` : ''}
+      ${c.subject ? `<div style="font-size:13px; font-weight:600; margin:8px 0 4px;">${escapeHtml(c.subject)}</div>` : ''}
+      <div style="font-size:12px; color:var(--text-dim);">${partyLabel}: ${escapeHtml(c.recipient || '?')}</div>
+      ${c.body ? `<div class="comm-body comm-body-collapsed" id="commBody${c.id}" style="font-size:13px;line-height:1.5;margin-top:8px;max-height:80px;overflow:hidden;position:relative;white-space:pre-wrap;">${escapeHtml(c.body)}<div class="comm-fade" style="position:absolute;bottom:0;left:0;right:0;height:30px;background:linear-gradient(transparent,var(--surface));pointer-events:none;"></div></div>` : ''}
+      ${c.body && c.body.length > 200 ? `<div style="font-size:11px;color:var(--accent-strong);margin-top:4px;font-weight:500;">▾ Klik om uit te klappen</div>` : ''}
       ${c.error ? `<div style="color:var(--danger); font-size:11px; margin-top:6px;">⚠ ${escapeHtml(c.error)}</div>` : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
+window.toggleComm = (id) => {
+  const body = document.getElementById(`commBody${id}`);
+  if (!body) return;
+  const isCollapsed = body.classList.contains('comm-body-collapsed');
+  if (isCollapsed) {
+    body.classList.remove('comm-body-collapsed');
+    body.style.maxHeight = 'none';
+    const fade = body.querySelector('.comm-fade');
+    if (fade) fade.style.display = 'none';
+  } else {
+    body.classList.add('comm-body-collapsed');
+    body.style.maxHeight = '80px';
+    const fade = body.querySelector('.comm-fade');
+    if (fade) fade.style.display = 'block';
+  }
+};
 
 window.openLeadDetail = openLeadDetail;
 window.copyText = (text) => {
@@ -662,30 +693,63 @@ async function loadFunnel() {
           <div class="count">${grouped[stage.id].length}</div>
         </div>
         <div class="kanban-cards">
-          ${grouped[stage.id].map(d => `
-            <div class="kanban-card" onclick="openLeadDetail(${d.id})">
-              <div class="name">${escapeHtml(d.name)}</div>
+          ${grouped[stage.id].map(d => {
+            const unread = (state.unreadByLead && state.unreadByLead[d.id]) || 0;
+            return `
+            <div class="kanban-card${unread > 0 ? ' has-unread' : ''}" onclick="openLeadDetail(${d.id})" style="${unread > 0 ? 'border-left:3px solid #f5b800;background:#fffcf2;' : ''}">
+              <div class="name">${escapeHtml(d.name)} ${unread > 0 ? `<span title="${unread} ongelezen mail(s)" style="display:inline-block;background:#f5b800;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px;">📬 ${unread}</span>` : ''}</div>
               <div class="meta">
                 <span class="score-mini ${scoreClass(d.replacement_score)}">${d.replacement_score === null ? '—' : d.replacement_score}</span>
                 ${d.city_name ? escapeHtml(d.city_name) : ''}
               </div>
             </div>
-          `).join('') || '<div style="font-size:12px; color:var(--text-faint); text-align:center; padding:20px;">Leeg</div>'}
+          `;
+          }).join('') || '<div style="font-size:12px; color:var(--text-faint); text-align:center; padding:20px;">Leeg</div>'}
         </div>
       </div>
     `).join('');
   } catch (e) { console.error(e); }
 }
 
-// === PENDING ===
+// === INBOX (centrale Te bevestigen) — ongelezen klant-mails + AI-voorstellen ===
 async function loadPending() {
-  const actions = await api('/api/pending');
+  const inbox = await api('/api/inbox');
+  const unread = inbox.unread_comms || [];
+  const actions = inbox.pending || [];
   const list = $('#pendingList');
-  if (actions.length === 0) {
-    list.innerHTML = '<div class="empty"><h3>Niets te bevestigen</h3><p>Alle acties zijn afgehandeld of er zijn geen actieve sequences</p></div>';
+
+  if (unread.length === 0 && actions.length === 0) {
+    list.innerHTML = '<div class="empty"><h3>📭 Inbox leeg</h3><p>Geen ongelezen klant-mails of AI-voorstellen om te bekijken</p></div>';
     return;
   }
-  list.innerHTML = actions.map(a => {
+
+  const unreadHtml = unread.length === 0 ? '' : `
+    <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;text-transform:uppercase;letter-spacing:0.5px;">📥 Nieuwe klant-mails (${unread.length})</div>
+    ${unread.map(c => `
+      <div class="pending-card" style="border-left:3px solid #f5b800;cursor:pointer;" onclick="openLeadDetail(${c.lead_id})">
+        <div class="header">
+          <div>
+            <div style="font-weight:600;">${escapeHtml(c.lead_name)}</div>
+            <div style="font-size:11px; color:var(--text-faint);">
+              <span style="background:#fff3cd;color:#7a5b00;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">📥 Ongelezen</span>
+              Van: ${escapeHtml(c.recipient || '?')} · score: ${c.replacement_score || '—'} · ${timeAgo(c.sent_at)}
+            </div>
+          </div>
+          <button class="ghost tiny" onclick="event.stopPropagation();openLeadDetail(${c.lead_id})">Open lead →</button>
+        </div>
+        ${c.subject ? `<div style="font-size:13px; font-weight:500; margin:8px 0 6px;">${escapeHtml(c.subject)}</div>` : ''}
+        <div style="font-size:13px;line-height:1.5;color:var(--text);white-space:pre-wrap;max-height:120px;overflow:hidden;position:relative;">${escapeHtml((c.body || '').substring(0, 400))}${(c.body || '').length > 400 ? '…' : ''}</div>
+      </div>
+    `).join('')}
+    ${actions.length > 0 ? '<div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin:24px 0 12px;text-transform:uppercase;letter-spacing:0.5px;">🤖 AI-voorstellen om te controleren (' + actions.length + ')</div>' : ''}
+  `;
+
+  if (actions.length === 0) {
+    list.innerHTML = unreadHtml;
+    return;
+  }
+
+  const pendingHtml = actions.map(a => {
     const isAiReply = a.type === 'email_reply';
     const banner = isAiReply
       ? `<div style="background:var(--accent-soft);color:var(--accent-strong);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;font-weight:500;">🤖 AI-voorstel — controleer, pas aan indien nodig, klik Verstuur</div>`
@@ -713,6 +777,7 @@ async function loadPending() {
     </div>
   `;
   }).join('');
+  list.innerHTML = unreadHtml + pendingHtml;
 }
 window.savePending = async (id) => {
   const card = document.querySelector(`[data-pending-id="${id}"]`);
