@@ -109,6 +109,7 @@ function switchView(view, data = {}) {
     funnel: 'Funnel',
     pending: 'Inbox — ongelezen mails & AI-voorstellen',
     bookings: 'Boekingen — Cal.com afspraken',
+    activity: 'Activiteit — wat heeft het systeem gedaan',
     projects: 'Projecten',
     branches: 'Branches',
     cities: 'Steden',
@@ -126,6 +127,7 @@ function switchView(view, data = {}) {
   if (view === 'funnel') loadFunnel();
   if (view === 'pending') loadPending();
   if (view === 'bookings') loadBookings();
+  if (view === 'activity') loadActivity();
   if (view === 'branches') loadBranches();
   if (view === 'cities') loadCities();
   if (view === 'templates') loadTemplatesList();
@@ -182,17 +184,17 @@ function updateAutopilotUI(s) {
   const toggle = $('#apToggle');
 
   if (s.autopilotEnabled) {
-    dot.className = s.lastError ? 'pulse-dot error' : 'pulse-dot on';
-    label.textContent = s.currentJob ? `Bezig...` : 'Auto-pilot actief';
-    meta.textContent = s.currentJob
+    if (dot) dot.className = s.lastError ? 'pulse-dot error' : 'pulse-dot on';
+    if (label) label.textContent = s.currentJob ? 'Bezig…' : 'Auto-pilot aan';
+    if (meta) meta.textContent = s.currentJob
       ? `${s.currentJob.branch.substring(0,18)} · ${s.currentJob.city}`
-      : `${s.searchesPerHour}/uur · ${s.totalRuns} runs gedaan`;
+      : `${s.searchesPerHour}/uur · ${s.totalRuns} runs`;
   } else {
-    dot.className = 'pulse-dot';
-    label.textContent = 'Auto-pilot uit';
-    meta.textContent = 'Klik switch om te starten';
+    if (dot) dot.className = 'pulse-dot';
+    if (label) label.textContent = 'Auto-pilot uit';
+    if (meta) meta.textContent = 'Klik switch om te starten';
   }
-  toggle.checked = s.autopilotEnabled;
+  if (toggle) toggle.checked = !!s.autopilotEnabled;
 }
 
 $('#apToggle').addEventListener('change', async (e) => {
@@ -582,6 +584,13 @@ window.saveLeadNotes = async (id) => {
   await api(`/api/leads/${id}`, { method: 'PATCH', body: { notes } });
   toast('✓ Opgeslagen');
 };
+window.regenerateScreenshots = async () => {
+  if (!confirm('Voor alle leads zonder screenshot een nieuwe genereren? Dit kan even duren.')) return;
+  try {
+    const res = await api('/api/leads/regenerate-screenshots', { method: 'POST' });
+    toast(res.message || `Batch gestart voor ${res.queued} leads`);
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
 window.startLeadFunnel = async (id) => {
   if (!confirm('Lead in funnel zetten en direct de eerste outreach-mail versturen?\n\nDe lead krijgt vanuit de "Standaard outreach" sequence (template "Eerste contact"). Follow-up stappen worden door de sequence-engine ingepland (zichtbaar in Inbox zodra ze aan de beurt zijn).')) return;
   try {
@@ -741,6 +750,33 @@ async function loadFunnel() {
         </div>
       </div>
     `).join('');
+  } catch (e) { console.error(e); }
+}
+
+// === ACTIVITY LOG ===
+async function loadActivity() {
+  try {
+    const events = await api('/api/activity');
+    const list = $('#activityList');
+    if (!events || events.length === 0) {
+      list.innerHTML = '<div class="empty"><h3>Nog geen activiteit</h3><p>Acties van auto-pilot, mails en bookings verschijnen hier</p></div>';
+      return;
+    }
+    list.innerHTML = events.map(e => {
+      const dt = e.at ? new Date(e.at) : null;
+      const dateStr = dt ? dt.toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+      const clickable = e.lead_id ? `style="cursor:pointer" onclick="openLeadDetail(${e.lead_id})"` : '';
+      return `
+        <div ${clickable} style="display:flex;align-items:flex-start;gap:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;margin-bottom:6px;">
+          <span style="font-size:20px;flex-shrink:0;">${e.icon}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:13px;color:var(--primary);">${escapeHtml(e.title)}</div>
+            <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px;">${escapeHtml(e.detail)}</div>
+          </div>
+          <span style="font-size:11.5px;color:var(--mute);white-space:nowrap;">${dateStr}</span>
+        </div>
+      `;
+    }).join('');
   } catch (e) { console.error(e); }
 }
 

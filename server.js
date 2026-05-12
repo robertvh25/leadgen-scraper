@@ -380,6 +380,25 @@ app.post('/api/leads/:id/create-briefing', async (req, res) => {
   });
 });
 
+app.post('/api/leads/regenerate-screenshots', async (req, res) => {
+  // Async — start een background-job, geef direct status terug
+  const leads = db.db.prepare(`SELECT id, website FROM leads WHERE (screenshot_path IS NULL OR screenshot_path = '') AND website IS NOT NULL AND website != ''`).all();
+  res.json({ ok: true, queued: leads.length, message: `Screenshot-batch gestart voor ${leads.length} leads — kost ~${Math.ceil(leads.length * 6 / 60)} min` });
+  (async () => {
+    let done = 0;
+    for (const l of leads) {
+      try {
+        const ssPath = await takeScreenshot(l.website, l.id);
+        if (ssPath) db.updateLeadScreenshot(l.id, ssPath);
+        done++;
+        if (done % 10 === 0) console.log(`Screenshot batch: ${done}/${leads.length}`);
+      } catch (e) { /* skip */ }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    console.log(`✓ Screenshot batch klaar: ${done}/${leads.length}`);
+  })();
+});
+
 app.post('/api/leads/:id/screenshot', async (req, res) => {
   const lead = db.getLead(parseInt(req.params.id));
   if (!lead) return res.status(404).json({ error: 'Niet gevonden' });
@@ -529,6 +548,44 @@ app.delete('/api/sequences/:id', (req, res) => {
 app.post('/api/leads/:id/start-campaign', (req, res) => {
   const ok = sequenceEngine.startCampaignForLead(parseInt(req.params.id), req.body.sequence_id);
   res.json({ ok });
+});
+
+// === ACTIVITY LOG ===
+app.get('/api/activity', (_, res) => {
+  const events = [];
+  for (const s of db.getRecentSearches()) {
+    events.push({
+      at: s.created_at,
+      kind: s.auto ? 'auto_scrape' : 'manual_scrape',
+      icon: s.auto ? '🤖' : '🔍',
+      title: s.auto ? 'Auto-pilot scrape' : 'Handmatige zoekopdracht',
+      detail: `"${s.query}"${s.location ? ' in ' + s.location : ''} — ${s.total_results || 0} resultaten · ${s.status}`,
+      lead_id: null,
+    });
+  }
+  for (const c of db.getRecentCommunications()) {
+    const out = c.direction === 'outbound';
+    events.push({
+      at: c.sent_at,
+      kind: out ? 'mail_sent' : 'mail_received',
+      icon: out ? '📤' : '📥',
+      title: out ? 'Mail verzonden' : 'Mail ontvangen',
+      detail: `${c.lead_name || c.recipient || '?'} — ${c.subject || '(geen onderwerp)'}`,
+      lead_id: c.lead_id,
+    });
+  }
+  for (const b of db.getRecentBookings()) {
+    events.push({
+      at: b.created_at,
+      kind: b.status === 'cancelled' ? 'booking_cancelled' : 'booking_made',
+      icon: b.status === 'cancelled' ? '❌' : '📅',
+      title: b.status === 'cancelled' ? 'Booking geannuleerd' : 'Booking ontvangen',
+      detail: `${b.lead_name || b.attendee_name || '?'} — ${b.event_type || 'meeting'}${b.scheduled_at ? ' op ' + new Date(b.scheduled_at).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' }) : ''}`,
+      lead_id: b.lead_id,
+    });
+  }
+  events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  res.json(events.slice(0, 200));
 });
 
 // === INBOX (combineerd ongelezen klant-mails + pending AI-voorstellen) ===

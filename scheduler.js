@@ -3,6 +3,8 @@ const { scrapeGoogleMaps } = require('./scraper');
 const { analyzeWebsite } = require('./analyzer');
 const { takeScreenshot } = require('./lib/screenshot');
 const sequenceEngine = require('./lib/sequence-engine');
+const { sendEmail } = require('./lib/email-sender');
+const { render } = require('./lib/template-renderer');
 const db = require('./db');
 
 let running = false;
@@ -78,13 +80,42 @@ async function runOneJob() {
 
         db.updateLeadAnalysis(lead.id, analysis);
 
-        // Auto-funnel: hoge score → automatisch naar 'contacted' stage
+        // Auto-funnel: hoge score → direct in funnel + EERSTE MAIL DIRECT UIT (geen pending)
         if (autoFunnel && analysis.replacement_score >= highScoreThreshold) {
           const fresh = db.getLead(lead.id);
           if (fresh && fresh.stage === 'new') {
-            db.updateLeadStage(lead.id, 'contacted');
-            sequenceEngine.autoStartCampaignsForStage(lead.id, 'contacted');
-            console.log(`  ↪ Lead "${lead.name}" (score ${analysis.replacement_score}) automatisch naar funnel`);
+            try {
+              // Parse JSON-kolommen
+              const emails = fresh.emails ? JSON.parse(fresh.emails) : [];
+              const recipient = emails[0];
+              if (!recipient) {
+                console.log(`  ↪ Lead "${fresh.name}" (score ${analysis.replacement_score}) geen email — skip auto-funnel`);
+              } else {
+                // Vind "Eerste contact"-template
+                const templates = db.getTemplates();
+                const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')
+                  || templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
+                if (!tmpl) {
+                  console.warn(`  ↪ Lead "${fresh.name}" geen "Eerste contact"-template gevonden — skip mail`);
+                } else {
+                  const subject = render(tmpl.subject || '', fresh);
+                  const body = render(tmpl.body, fresh);
+                  await sendEmail({ to: recipient, subject, body, leadId: fresh.id });
+                  // sendEmail doet al advanceLeadStage('contacted') + logCommunication
+                  // Start campaign zodat follow-ups (delay>0) door sequence-engine worden gepland
+                  const seqs = db.getSequences().filter(s => s.enabled && s.trigger_stage === 'contacted');
+                  const seq = seqs[0];
+                  if (seq) {
+                    db.startLeadCampaign(fresh.id, seq.id);
+                    const camp = db.getLeadCampaigns(fresh.id).find(c => c.sequence_id === seq.id);
+                    if (camp) db.advanceCampaign(camp.id);
+                  }
+                  console.log(`  ↪ Auto-funnel: "${fresh.name}" (score ${analysis.replacement_score}) → contacted + eerste mail verzonden`);
+                }
+              }
+            } catch (e) {
+              console.error(`  ✗ Auto-funnel mail-fout voor "${fresh.name}": ${e.message}`);
+            }
           }
         }
       } catch (err) {

@@ -43,6 +43,7 @@
         <button type="button" class="tab-btn nav-item" data-view="pending" data-target="pending">📬 Inbox <span class="tab-count tab-count--alert" id="navPendingCount">0</span></button>
         <button type="button" class="tab-btn nav-item" data-view="bookings" data-target="bookings">📅 Boekingen <span class="tab-count" id="navBookingsCount">0</span></button>
         <button type="button" class="tab-btn nav-item" data-view="projects" data-target="projects">📁 Projecten</button>
+        <button type="button" class="tab-btn nav-item" data-view="activity" data-target="activity">📜 Activiteit</button>
         <span style="width:1px;height:24px;background:var(--line);margin:0 4px;"></span>
         <button type="button" class="tab-btn nav-item" data-view="branches" data-target="branches">🏗️ Branches</button>
         <button type="button" class="tab-btn nav-item" data-view="cities" data-target="cities">🌍 Steden</button>
@@ -184,6 +185,12 @@
           <div class="card-grid" id="sequencesList"></div>
         </div>
 
+        <!-- ACTIVITY -->
+        <div class="view" id="view-activity">
+          <p class="subtitle">Chronologische lijst van automatische gebeurtenissen: scrapes, mails, bookings.</p>
+          <div id="activityList"></div>
+        </div>
+
         <!-- BOOKINGS -->
         <div class="view" id="view-bookings">
           <p class="subtitle">Afspraken geboekt via Cal.com — komen automatisch binnen via webhook</p>
@@ -302,6 +309,17 @@
           </div>
 
           <div style="margin-top:20px;"><button id="saveSettingsBtn">Alles opslaan</button></div>
+
+          <h2 style="margin-top:32px;">Onderhoud</h2>
+          <div class="settings-grid">
+            <div class="setting-row">
+              <div class="info">
+                <div class="info-title">Screenshots opnieuw genereren</div>
+                <div class="info-desc">Voor alle leads zonder screenshot een nieuwe maken. Duurt ~6 sec per lead, op de achtergrond.</div>
+              </div>
+              <div class="control"><button class="secondary" onclick="regenerateScreenshots()">↻ Start batch</button></div>
+            </div>
+          </div>
         </div>
       </div>
     </main>

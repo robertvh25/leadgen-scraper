@@ -306,7 +306,7 @@ const stmts = {
   updateLeadEmails: db.prepare(`UPDATE leads SET emails = ? WHERE id = ?`),
   updateLeadBriefingSlug: db.prepare(`UPDATE leads SET briefing_slug = ? WHERE id = ?`),
   updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
-  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
+  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) AND emails IS NOT NULL AND emails != '[]' AND emails != '' ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
   getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
   getTopLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') AND replacement_score IS NOT NULL ORDER BY replacement_score DESC, created_at DESC LIMIT 20`),
   getLead: db.prepare(`SELECT * FROM leads WHERE id = ?`),
@@ -354,6 +354,10 @@ const stmts = {
   getTotalUnreadCount: db.prepare(`SELECT COUNT(*) AS c FROM communications WHERE direction = 'inbound' AND read = 0`),
   getUnreadByLead: db.prepare(`SELECT lead_id, COUNT(*) AS c FROM communications WHERE direction = 'inbound' AND read = 0 GROUP BY lead_id`),
   getUnreadInboundComms: db.prepare(`SELECT c.*, l.name AS lead_name, l.replacement_score FROM communications c LEFT JOIN leads l ON c.lead_id = l.id WHERE c.direction = 'inbound' AND c.read = 0 ORDER BY c.sent_at DESC LIMIT 50`),
+  // Activity log: combineer searches + communications + bookings
+  getRecentSearches: db.prepare(`SELECT * FROM searches ORDER BY created_at DESC LIMIT 60`),
+  getRecentCommunications: db.prepare(`SELECT c.*, l.name AS lead_name FROM communications c LEFT JOIN leads l ON c.lead_id = l.id ORDER BY c.sent_at DESC LIMIT 100`),
+  getRecentBookings: db.prepare(`SELECT b.*, l.name AS lead_name FROM bookings b LEFT JOIN leads l ON b.lead_id = l.id ORDER BY b.created_at DESC LIMIT 50`),
   insertBooking: db.prepare(`INSERT OR REPLACE INTO bookings (lead_id, calcom_uid, event_type, scheduled_at, end_at, attendee_email, attendee_name, meet_url, location, status, raw_payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   updateBookingStatus: db.prepare(`UPDATE bookings SET status = ? WHERE calcom_uid = ?`),
   getBookings: db.prepare(`SELECT b.*, l.name AS lead_name, l.replacement_score, l.stage FROM bookings b LEFT JOIN leads l ON b.lead_id = l.id ORDER BY b.scheduled_at DESC LIMIT 200`),
@@ -494,6 +498,9 @@ module.exports = {
     return map;
   },
   getUnreadInboundComms: () => stmts.getUnreadInboundComms.all(),
+  getRecentSearches: () => stmts.getRecentSearches.all(),
+  getRecentCommunications: () => stmts.getRecentCommunications.all(),
+  getRecentBookings: () => stmts.getRecentBookings.all(),
   // Bookings
   upsertBooking: (b) => stmts.insertBooking.run(b.lead_id || null, b.calcom_uid, b.event_type || null, b.scheduled_at || null, b.end_at || null, b.attendee_email || null, b.attendee_name || null, b.meet_url || null, b.location || null, b.status || 'confirmed', b.raw_payload || null),
   setBookingStatus: (uid, status) => stmts.updateBookingStatus.run(status, uid),
