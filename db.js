@@ -184,6 +184,14 @@ try {
   console.log('✓ Migration v4.37: pending eerste-stap email-actions naar auto_send=1');
 } catch (e) { console.error('Migration v4.37 error:', e.message); }
 
+// Migration v4.40: ruim queue-entries op voor disabled branches/cities
+try {
+  const r1 = db.prepare(`DELETE FROM queue WHERE city_name IN (SELECT name FROM cities WHERE enabled = 0)`).run();
+  const r2 = db.prepare(`DELETE FROM queue WHERE branch_name IN (SELECT name FROM branches WHERE enabled = 0)`).run();
+  const total = (r1.changes || 0) + (r2.changes || 0);
+  if (total > 0) console.log(`✓ Migration v4.40: ${total} queue-entries voor disabled branches/cities verwijderd`);
+} catch (e) { console.error('Migration v4.40 error:', e.message); }
+
 function seedDefaults() {
   if (db.prepare(`SELECT COUNT(*) AS c FROM branches`).get().c === 0) {
     const items = ['kozijnbedrijf', 'kunststof kozijnen', 'aluminium kozijnen', 'houten kozijnen', 'dakkapel installateur', 'zonwering bedrijf', 'rolluiken bedrijf', 'gevelbekleding bedrijf', 'serrebouwer', 'glaszetter', 'horren specialist', 'schuifpui leverancier'];
@@ -312,7 +320,14 @@ const stmts = {
   toggleCity: db.prepare(`UPDATE cities SET enabled = ? WHERE id = ?`),
   deleteCity: db.prepare(`DELETE FROM cities WHERE id = ?`),
   getQueueStats: db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN last_run IS NULL THEN 1 ELSE 0 END) AS never_run, SUM(CASE WHEN last_run IS NOT NULL THEN 1 ELSE 0 END) AS run_at_least_once, SUM(CASE WHEN next_run <= datetime('now') THEN 1 ELSE 0 END) AS due_now FROM queue`),
-  pickNextQueueItem: db.prepare(`SELECT * FROM queue WHERE next_run <= datetime('now') AND error_count < 5 ORDER BY CASE WHEN last_run IS NULL THEN 0 ELSE 1 END, next_run ASC, RANDOM() LIMIT 1`),
+  pickNextQueueItem: db.prepare(`SELECT q.* FROM queue q
+    INNER JOIN branches b ON b.name = q.branch_name AND b.enabled = 1
+    INNER JOIN cities  c ON c.name = q.city_name   AND c.enabled = 1
+    WHERE q.next_run <= datetime('now') AND q.error_count < 5
+    ORDER BY CASE WHEN q.last_run IS NULL THEN 0 ELSE 1 END, q.next_run ASC, RANDOM()
+    LIMIT 1`),
+  deleteQueueByCity:   db.prepare(`DELETE FROM queue WHERE city_name = ?`),
+  deleteQueueByBranch: db.prepare(`DELETE FROM queue WHERE branch_name = ?`),
   updateQueueItem: db.prepare(`UPDATE queue SET last_run = datetime('now'), last_status = ?, next_run = datetime('now', '+' || ? || ' days'), leads_found = leads_found + ?, error_count = CASE WHEN ? = 'error' THEN error_count + 1 ELSE 0 END WHERE id = ?`),
   rescheduleQueueItem: db.prepare(`UPDATE queue SET next_run = datetime('now', '+' || ? || ' minutes') WHERE id = ?`),
   createSearch: db.prepare(`INSERT INTO searches (query, location, auto) VALUES (?, ?, ?)`),
@@ -411,12 +426,34 @@ module.exports = {
   getAllSettings: () => { const r = stmts.getAllSettings.all(); const o = {}; for (const x of r) o[x.key] = x.value; return o; },
   getBranches: () => stmts.getBranches.all(),
   addBranch: (n) => stmts.insertBranch.run(n.trim()),
-  toggleBranch: (id, e) => stmts.toggleBranch.run(e ? 1 : 0, id),
-  deleteBranch: (id) => stmts.deleteBranch.run(id),
+  toggleBranch: (id, e) => {
+    const r = stmts.toggleBranch.run(e ? 1 : 0, id);
+    if (!e) {
+      const b = db.prepare(`SELECT name FROM branches WHERE id = ?`).get(id);
+      if (b) stmts.deleteQueueByBranch.run(b.name);
+    }
+    return r;
+  },
+  deleteBranch: (id) => {
+    const b = db.prepare(`SELECT name FROM branches WHERE id = ?`).get(id);
+    if (b) stmts.deleteQueueByBranch.run(b.name);
+    return stmts.deleteBranch.run(id);
+  },
   getCities: () => stmts.getCities.all(),
   addCity: (n) => stmts.insertCity.run(n.trim()),
-  toggleCity: (id, e) => stmts.toggleCity.run(e ? 1 : 0, id),
-  deleteCity: (id) => stmts.deleteCity.run(id),
+  toggleCity: (id, e) => {
+    const r = stmts.toggleCity.run(e ? 1 : 0, id);
+    if (!e) {
+      const c = db.prepare(`SELECT name FROM cities WHERE id = ?`).get(id);
+      if (c) stmts.deleteQueueByCity.run(c.name);
+    }
+    return r;
+  },
+  deleteCity: (id) => {
+    const c = db.prepare(`SELECT name FROM cities WHERE id = ?`).get(id);
+    if (c) stmts.deleteQueueByCity.run(c.name);
+    return stmts.deleteCity.run(id);
+  },
   getQueueStats: () => stmts.getQueueStats.get(),
   pickNextQueueItem: () => stmts.pickNextQueueItem.get(),
   updateQueueItem: (id, status, days, found) => stmts.updateQueueItem.run(status, days, found, status, id),
