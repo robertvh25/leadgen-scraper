@@ -271,10 +271,19 @@ async function loadLeads() {
   populateFilterDropdowns();
 }
 
-function populateFilterDropdowns() {
-  const branchSet = new Set(state.leads.map(l => l.branch_name).filter(Boolean));
-  const citySet = new Set(state.leads.map(l => l.city_name).filter(Boolean));
+async function populateFilterDropdowns() {
+  // Gebruik enabled branches/cities uit DB (niet alleen wat in zichtbare leads zit)
+  if (!state.allBranches) {
+    try { state.allBranches = (await api('/api/branches')).filter(b => b.enabled).map(b => b.name); } catch { state.allBranches = []; }
+  }
+  if (!state.allCities) {
+    try { state.allCities = (await api('/api/cities')).filter(c => c.enabled).map(c => c.name); } catch { state.allCities = []; }
+  }
+  // Union met wat in huidige zichtbare leads zit (voor edge-cases zoals oude leads van disabled branches)
+  const branchSet = new Set([...state.allBranches, ...state.leads.map(l => l.branch_name).filter(Boolean)]);
+  const citySet = new Set([...state.allCities, ...state.leads.map(l => l.city_name).filter(Boolean)]);
   const bSel = $('#filterBranch'), cSel = $('#filterCity');
+  if (!bSel || !cSel) return;
   const cb = bSel.value, cc = cSel.value;
   bSel.innerHTML = '<option value="">Alle branches</option>' + [...branchSet].sort().map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
   cSel.innerHTML = '<option value="">Alle steden</option>' + [...citySet].sort().map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
@@ -342,9 +351,15 @@ async function loadAllLeads() {
   populateAllLeadsFilterDropdowns();
 }
 
-function populateAllLeadsFilterDropdowns() {
-  const branchSet = new Set(state.allLeads.map(l => l.branch_name).filter(Boolean));
-  const citySet = new Set(state.allLeads.map(l => l.city_name).filter(Boolean));
+async function populateAllLeadsFilterDropdowns() {
+  if (!state.allBranches) {
+    try { state.allBranches = (await api('/api/branches')).filter(b => b.enabled).map(b => b.name); } catch { state.allBranches = []; }
+  }
+  if (!state.allCities) {
+    try { state.allCities = (await api('/api/cities')).filter(c => c.enabled).map(c => c.name); } catch { state.allCities = []; }
+  }
+  const branchSet = new Set([...state.allBranches, ...state.allLeads.map(l => l.branch_name).filter(Boolean)]);
+  const citySet = new Set([...state.allCities, ...state.allLeads.map(l => l.city_name).filter(Boolean)]);
   const bSel = $('#filterBranchAll'), cSel = $('#filterCityAll');
   if (!bSel || !cSel) return;
   const cb = bSel.value, cc = cSel.value;
