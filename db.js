@@ -167,6 +167,16 @@ const STAGE_ORDER = {
 // Set default stage for any lead without one (existing leads)
 db.exec(`UPDATE leads SET stage = 'new' WHERE stage IS NULL OR stage = ''`);
 
+// One-time migration v4.27: leads met pending email-action moeten stage 'contacted' hebben
+try {
+  const flag = db.prepare(`SELECT value FROM settings WHERE key = ?`).get('migration_v4_27_pending_to_contacted');
+  if (!flag) {
+    const r = db.exec(`UPDATE leads SET stage = 'contacted' WHERE stage = 'new' AND id IN (SELECT DISTINCT lead_id FROM pending_actions WHERE type = 'email' AND auto_send = 1 AND lead_id IS NOT NULL AND status = 'pending')`);
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`).run('migration_v4_27_pending_to_contacted', '1');
+    console.log('✓ Migration v4.27: leads met pending mail naar contacted gezet');
+  }
+} catch (e) { console.error('Migration v4.27 error:', e.message); }
+
 function seedDefaults() {
   if (db.prepare(`SELECT COUNT(*) AS c FROM branches`).get().c === 0) {
     const items = ['kozijnbedrijf', 'kunststof kozijnen', 'aluminium kozijnen', 'houten kozijnen', 'dakkapel installateur', 'zonwering bedrijf', 'rolluiken bedrijf', 'gevelbekleding bedrijf', 'serrebouwer', 'glaszetter', 'horren specialist', 'schuifpui leverancier'];

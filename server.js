@@ -465,6 +465,9 @@ app.post('/api/leads/bulk-funnel', async (req, res) => {
       scheduled_for: cursor.toISOString(),
       auto_send: 1,
     });
+    // Direct stage naar 'contacted' zodat lead uit Hoge score leads-view verdwijnt;
+    // mail wordt later verzonden door auto-send worker
+    db.advanceLeadStage(lead.id, 'contacted');
     cursor = new Date(cursor.getTime() + SPACING_MS);
     queued++;
   }
