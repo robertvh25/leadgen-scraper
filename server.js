@@ -515,31 +515,37 @@ app.post('/api/admin/respace-pending', (req, res) => {
   res.json({ ok: true, rescheduled: pending.length, last_scheduled: cursor.toISOString() });
 });
 
-// Cleanup-endpoint: trekt leads met score onder de drempel uit de funnel
-// terug naar stage='new' en cancelt hun geplande mails. Dry-run by default,
-// pas met ?apply=1 commit hij naar de DB.
+// Cleanup-endpoint: trekt 'contacted'-leads die er onterecht in zitten terug
+// naar stage='new'. Onterecht = score < drempel OF geen email-adres. Verder
+// in funnel (briefing, replied, won, ...) wordt nooit aangeraakt. Dry-run by
+// default, pas met ?apply=1 commit hij naar de DB.
 //
 // Voorbeeld:
-//   curl -X POST .../api/admin/funnel-cleanup-low-score          → preview
-//   curl -X POST .../api/admin/funnel-cleanup-low-score?apply=1  → execute
+//   curl -X POST .../api/admin/funnel-cleanup          → preview
+//   curl -X POST .../api/admin/funnel-cleanup?apply=1  → execute
 //   ?threshold=50 overschrijft default uit settings
-app.post('/api/admin/funnel-cleanup-low-score', (req, res) => {
+app.post('/api/admin/funnel-cleanup', (req, res) => {
   const threshold = parseInt(
     req.query.threshold || db.getSetting('high_score_threshold') || '40'
   );
   const apply = req.query.apply === '1' || req.body?.apply === true;
 
-  // Vind leads in funnel met score onder drempel (NULL telt niet als "onder")
+  // Scope: alleen stage='contacted'. NULL-score telt NIET als "onder drempel".
   const matched = db.db.prepare(`
-    SELECT id, name, replacement_score, stage
+    SELECT id, name, replacement_score, emails,
+      CASE
+        WHEN emails IS NULL OR emails = '' OR emails = '[]' THEN 'no_email'
+        ELSE 'low_score'
+      END AS reason
     FROM leads
-    WHERE stage NOT IN ('new', 'lost')
-      AND replacement_score IS NOT NULL
-      AND replacement_score < ?
-    ORDER BY replacement_score ASC, name ASC
+    WHERE stage = 'contacted'
+      AND (
+        emails IS NULL OR emails = '' OR emails = '[]'
+        OR (replacement_score IS NOT NULL AND replacement_score < ?)
+      )
+    ORDER BY reason ASC, replacement_score ASC, name ASC
   `).all(threshold);
 
-  // Tel pending acties die we zouden cancelen
   const ids = matched.map(l => l.id);
   let pendingCount = 0;
   if (ids.length > 0) {
@@ -549,27 +555,33 @@ app.post('/api/admin/funnel-cleanup-low-score', (req, res) => {
     ).get(...ids).c;
   }
 
+  const byReason = {
+    no_email: matched.filter(l => l.reason === 'no_email').length,
+    low_score: matched.filter(l => l.reason === 'low_score').length,
+  };
+
   if (!apply) {
     return res.json({
       dry: true,
       threshold,
+      scope: "stage='contacted'",
       matched_leads: matched.length,
+      by_reason: byReason,
       pending_actions_to_cancel: pendingCount,
       sample: matched.slice(0, 20),
       message: matched.length === 0
-        ? 'Geen leads onder drempel in funnel — niets te doen.'
-        : `Preview: zou ${matched.length} leads terug naar 'new' zetten en ${pendingCount} mails cancelen. Voeg ?apply=1 toe om uit te voeren.`,
+        ? 'Geen onterechte leads in contacted — niets te doen.'
+        : `Preview: zou ${matched.length} leads (${byReason.no_email} no-email + ${byReason.low_score} low-score) terug naar 'new' zetten en ${pendingCount} mails cancelen. Voeg ?apply=1 toe.`,
     });
   }
 
-  // Execute — alles in transaction zodat partial failures terug rollen
   const tx = db.db.transaction(() => {
     let revertedLeads = 0;
     let cancelledActions = 0;
     for (const lead of matched) {
       const r1 = db.db.prepare(`UPDATE pending_actions SET status = 'cancelled' WHERE lead_id = ? AND status = 'pending'`).run(lead.id);
       cancelledActions += r1.changes;
-      const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE id = ? AND stage NOT IN ('new', 'lost')`).run(lead.id);
+      const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE id = ? AND stage = 'contacted'`).run(lead.id);
       revertedLeads += r2.changes;
     }
     return { revertedLeads, cancelledActions };
@@ -579,6 +591,7 @@ app.post('/api/admin/funnel-cleanup-low-score', (req, res) => {
   res.json({
     dry: false,
     threshold,
+    by_reason: byReason,
     reverted_leads: result.revertedLeads,
     cancelled_actions: result.cancelledActions,
     message: `${result.revertedLeads} leads terug naar 'new', ${result.cancelledActions} pending mails gecancelled.`,
