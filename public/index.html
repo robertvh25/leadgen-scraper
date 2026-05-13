@@ -15,6 +15,13 @@
       <div class="admin-header__inner">
         <a href="#" class="admin-logo" onclick="switchView('dashboard');return false;">LeadHunter · Aitomade</a>
         <nav class="admin-topnav">
+          <span class="autopilot-mini" id="sendPauseMini" title="Pauzeert alle automatische mail-verzending. Pending mails blijven staan tot je hervat.">
+            <span id="sendPauseLabel" style="font-size:13px;color:var(--mute)">Verzending actief</span>
+            <label class="toggle-switch" style="margin-left:6px;">
+              <input type="checkbox" id="sendPauseToggle">
+              <span class="slider"></span>
+            </label>
+          </span>
           <span class="autopilot-mini">
             <span class="pulse-dot" id="apDot"></span>
             <span id="apLabel" style="font-size:13px;color:var(--mute)">Auto-pilot uit</span>
@@ -30,6 +37,12 @@
     </header>
 
     <main class="admin-main">
+      <div id="sendPauseBanner" style="display:none;background:#fef2f2;border:2px solid #dc2626;border-radius:8px;padding:14px 16px;margin-bottom:12px;align-items:center;justify-content:space-between;gap:12px;">
+        <div style="color:#7f1d1d;font-weight:600;font-size:14px;">
+          ⏸ Verzending gepauzeerd — er gaat geen enkele auto-mail uit. <span id="sendPausePendingInfo" style="font-weight:400;color:#991b1b"></span>
+        </div>
+        <button onclick="toggleSendPause()" style="background:#dc2626;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">▶ Hervat verzending</button>
+      </div>
       <div class="topbar" style="margin-bottom:8px;">
         <h1 class="topbar-title" id="topbarTitle" style="margin:0;">Dashboard</h1>
         <div class="topbar-actions" id="topbarActions"></div>

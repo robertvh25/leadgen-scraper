@@ -151,6 +151,8 @@ async function loadDashboard() {
     $('#dTotalSub').textContent = `${data.stats.analyzed_leads} geanalyseerd`;
 
     updateAutopilotUI(data.scheduler);
+    state.settings = data.settings || state.settings || {};
+    updateSendPauseUI(state.settings, data.pending_count || 0);
     $('#navLeadsCount').textContent = data.stats.high_score_leads;
     const navAll = $('#navAllLeadsCount');
     if (navAll) navAll.textContent = data.stats.total_leads;
@@ -204,6 +206,42 @@ $('#apToggle').addEventListener('change', async (e) => {
     loadDashboard();
   } catch (err) { toast('Fout: ' + err.message, 'error'); }
 });
+
+// Send-pause kill-switch — als deze aan staat verstuurt de auto-send worker
+// niks (pending acties blijven gewoon staan). Toggle staat in de top-nav en
+// is altijd zichtbaar; rood banner verschijnt onder de topbar wanneer paused.
+function updateSendPauseUI(settings, pendingCount) {
+  const paused = settings && settings.send_paused === '1';
+  const toggle = $('#sendPauseToggle');
+  const label = $('#sendPauseLabel');
+  const banner = $('#sendPauseBanner');
+  const info = $('#sendPausePendingInfo');
+  if (toggle) toggle.checked = paused;
+  if (label) {
+    label.textContent = paused ? '⏸ Verzending gepauzeerd' : 'Verzending actief';
+    label.style.color = paused ? '#dc2626' : 'var(--mute)';
+    label.style.fontWeight = paused ? '600' : 'normal';
+  }
+  if (banner) {
+    banner.style.display = paused ? 'flex' : 'none';
+    if (info) info.textContent = pendingCount > 0
+      ? `(${pendingCount} pending mail${pendingCount === 1 ? '' : 's'} wachten op hervat)`
+      : '';
+  }
+}
+
+window.toggleSendPause = async () => {
+  const next = !(state.settings && state.settings.send_paused === '1');
+  try {
+    await api('/api/settings', { method: 'POST', body: { send_paused: next ? '1' : '0' } });
+    toast(next ? '⏸ Verzending gepauzeerd — geen auto-mails worden verzonden' : '▶ Verzending hervat');
+    state.settings = { ...(state.settings || {}), send_paused: next ? '1' : '0' };
+    loadDashboard();
+  } catch (err) { toast('Fout: ' + err.message, 'error'); }
+};
+
+const sendPauseToggleEl = $('#sendPauseToggle');
+if (sendPauseToggleEl) sendPauseToggleEl.addEventListener('change', () => toggleSendPause());
 
 // === LEAD CARD ===
 function renderLeadCard(l) {
@@ -897,6 +935,7 @@ async function loadFunnel() {
         <div class="kanban-col-header">
           <div class="name">${stage.label}</div>
           <div class="count">${grouped[stage.id].length}</div>
+          ${grouped[stage.id].length > 0 ? `<button class="tiny ghost" title="Alle leads in '${stage.label}' terug naar 'new' + pending mails cancelen" onclick="event.stopPropagation(); emptyFunnelStage('${stage.id}', '${stage.label}', ${grouped[stage.id].length})" style="margin-left:auto;color:#dc2626;border-color:#dc2626;">🗑 leeg</button>` : ''}
         </div>
         <div class="kanban-cards">
           ${grouped[stage.id].map(d => {
@@ -906,7 +945,8 @@ async function loadFunnel() {
               ? 'border-left:3px solid #f5b800;background:#fffcf2;'
               : (hasBooking ? 'border-left:3px solid var(--accent);' : '');
             return `
-            <div class="kanban-card" onclick="openLeadDetail(${d.id})" style="${borderStyle}">
+            <div class="kanban-card" onclick="openLeadDetail(${d.id})" style="${borderStyle}position:relative;">
+              <button title="Lead uit funnel halen (terug naar 'new', pending mails cancelen)" onclick="event.stopPropagation(); removeLeadFromFunnel(${d.id}, '${escapeHtml(d.name).replace(/'/g, "\\'")}')" style="position:absolute;top:4px;right:4px;background:transparent;border:0;color:#9ca3af;font-size:14px;cursor:pointer;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='#fee2e2';this.style.color='#dc2626'" onmouseout="this.style.background='transparent';this.style.color='#9ca3af'">✕</button>
               <div class="name">${escapeHtml(d.name)}
                 ${unread > 0 ? `<span title="${unread} ongelezen mail(s)" style="display:inline-block;background:#f5b800;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px;">📬 ${unread}</span>` : ''}
                 ${hasBooking ? `<span title="Meeting geboekt" style="display:inline-block;background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600;margin-left:4px;">📅</span>` : ''}
@@ -923,6 +963,26 @@ async function loadFunnel() {
     `).join('');
   } catch (e) { console.error(e); }
 }
+
+window.removeLeadFromFunnel = async (id, name) => {
+  if (!confirm(`"${name}" uit funnel halen?\n\nLead gaat terug naar 'new' en zijn pending mails worden gecancelled.`)) return;
+  try {
+    const res = await api('/api/leads/bulk-remove-from-funnel', { method: 'POST', body: { ids: [id] } });
+    toast(res.message || `${res.reverted_leads} lead(s) verwijderd`);
+    loadFunnel();
+    loadDashboard();
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
+
+window.emptyFunnelStage = async (stageId, stageLabel, count) => {
+  if (!confirm(`Alle ${count} lead(s) in "${stageLabel}" terug naar 'new' zetten?\n\nDit cancelt al hun pending mails. Kan niet ongedaan worden gemaakt.`)) return;
+  try {
+    const res = await api('/api/leads/bulk-remove-from-funnel', { method: 'POST', body: { stage: stageId } });
+    toast(res.message || `${res.reverted_leads} lead(s) verwijderd`);
+    loadFunnel();
+    loadDashboard();
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
 
 // === ACTIVITY LOG ===
 async function loadActivity() {

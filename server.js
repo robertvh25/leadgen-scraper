@@ -656,6 +656,127 @@ app.post('/api/admin/funnel-revert-recent', (req, res) => {
   });
 });
 
+// Re-render pending mails met de huidige template-content. Voor wanneer je
+// een template hebt aangepast nadat mails al ingepland staan — de oude
+// rendered_subject/body zijn "bevroren" in pending_actions, dit refresht ze.
+// Alleen pending email-actions met een template_id worden geraakt. Replies
+// en custom mails (geen template_id) blijven met rust.
+// Dry-run by default, ?apply=1 om uit te voeren.
+app.post('/api/admin/funnel-rerender-pending', (req, res) => {
+  const apply = req.query.apply === '1' || req.body?.apply === true;
+
+  const targets = db.db.prepare(`
+    SELECT pa.id AS pending_id, pa.lead_id, pa.template_id,
+           pa.rendered_subject AS old_subject, pa.rendered_body AS old_body,
+           l.name AS lead_name
+    FROM pending_actions pa
+    JOIN leads l ON l.id = pa.lead_id
+    WHERE pa.status = 'pending'
+      AND pa.type = 'email'
+      AND pa.template_id IS NOT NULL
+    ORDER BY pa.scheduled_for ASC
+  `).all();
+
+  // Groepeer per template + cache template + lead lookups
+  const templateCache = new Map();
+  const getTmpl = (id) => {
+    if (!templateCache.has(id)) templateCache.set(id, db.getTemplate(id));
+    return templateCache.get(id);
+  };
+
+  const plan = [];
+  const byTemplate = {};
+  for (const t of targets) {
+    const tmpl = getTmpl(t.template_id);
+    if (!tmpl) { plan.push({ ...t, skip: 'template-niet-gevonden' }); continue; }
+    const lead = db.getLead(t.lead_id);
+    if (!lead) { plan.push({ ...t, skip: 'lead-niet-gevonden' }); continue; }
+    parseLeadList([lead]);
+    const newSubject = render(tmpl.subject || '', lead);
+    const newBody = render(tmpl.body, lead);
+    const changed = newSubject !== t.old_subject || newBody !== t.old_body;
+    plan.push({
+      pending_id: t.pending_id,
+      lead_name: t.lead_name,
+      template_name: tmpl.name,
+      changed,
+      new_subject: newSubject,
+      new_body: newBody,
+    });
+    byTemplate[tmpl.name] = byTemplate[tmpl.name] || { total: 0, changed: 0 };
+    byTemplate[tmpl.name].total++;
+    if (changed) byTemplate[tmpl.name].changed++;
+  }
+
+  const changedCount = plan.filter(p => p.changed).length;
+
+  if (!apply) {
+    return res.json({
+      dry: true,
+      pending_total: targets.length,
+      changed_count: changedCount,
+      by_template: byTemplate,
+      sample: plan.filter(p => p.changed).slice(0, 5).map(p => ({
+        pending_id: p.pending_id, lead_name: p.lead_name, template_name: p.template_name,
+        new_subject: p.new_subject,
+      })),
+      message: changedCount === 0
+        ? `Alle ${targets.length} pending mails zijn al in sync met huidige templates.`
+        : `Preview: ${changedCount} van ${targets.length} pending mails zouden gere-render worden. Voeg ?apply=1 toe.`,
+    });
+  }
+
+  const stmt = db.db.prepare(`UPDATE pending_actions SET rendered_subject = ?, rendered_body = ? WHERE id = ? AND status = 'pending'`);
+  const tx = db.db.transaction(() => {
+    let updated = 0;
+    for (const p of plan) {
+      if (!p.changed) continue;
+      const r = stmt.run(p.new_subject, p.new_body, p.pending_id);
+      updated += r.changes;
+    }
+    return updated;
+  });
+  const updated = tx();
+
+  res.json({
+    dry: false,
+    updated,
+    by_template: byTemplate,
+    message: `${updated} pending mails gere-renderd met huidige template.`,
+  });
+});
+
+// Bulk-remove uit funnel: zet de opgegeven leads terug naar stage='new' en
+// cancelt hun pending mails. Accepteert óf body.ids (lijst) óf body.stage
+// (alle leads in die stage). Geen dry-run — UI doet de confirm.
+app.post('/api/leads/bulk-remove-from-funnel', (req, res) => {
+  let ids = [];
+  if (Array.isArray(req.body?.ids) && req.body.ids.length > 0) {
+    ids = req.body.ids.map(Number).filter(Boolean);
+  } else if (typeof req.body?.stage === 'string') {
+    const stage = req.body.stage;
+    if (['new', 'lost'].includes(stage)) return res.status(400).json({ error: `Stage '${stage}' is geen funnel-stage` });
+    ids = db.db.prepare(`SELECT id FROM leads WHERE stage = ?`).all(stage).map(r => r.id);
+  } else {
+    return res.status(400).json({ error: 'Geef body.ids (lijst) of body.stage op' });
+  }
+  if (ids.length === 0) return res.json({ ok: true, reverted_leads: 0, cancelled_actions: 0, message: 'Geen leads om te verwerken.' });
+
+  const placeholders = ids.map(() => '?').join(',');
+  const tx = db.db.transaction(() => {
+    const r1 = db.db.prepare(`UPDATE pending_actions SET status = 'cancelled' WHERE status = 'pending' AND lead_id IN (${placeholders})`).run(...ids);
+    const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE stage NOT IN ('new', 'lost') AND id IN (${placeholders})`).run(...ids);
+    return { cancelledActions: r1.changes, revertedLeads: r2.changes };
+  });
+  const result = tx();
+  res.json({
+    ok: true,
+    reverted_leads: result.revertedLeads,
+    cancelled_actions: result.cancelledActions,
+    message: `${result.revertedLeads} leads terug naar 'new', ${result.cancelledActions} pending mails gecancelled.`,
+  });
+});
+
 app.post('/api/leads/bulk-funnel', async (req, res) => {
   // Manueel bulk: respecteert high_score_threshold (default 40) wanneer geen
   // body.ids meegegeven — matcht de "Hoge score leads"-view die de UI toont.
@@ -1069,7 +1190,7 @@ app.delete('/api/cities/:id', (req, res) => {
 // === SETTINGS ===
 app.get('/api/settings', (_, res) => res.json(db.getAllSettings()));
 app.post('/api/settings', (req, res) => {
-  const allowed = ['autopilot_enabled', 'searches_per_hour', 'max_results_per_search', 'repeat_interval_days', 'night_mode', 'sender_name', 'sender_email', 'reply_to', 'company_name', 'signature', 'auto_add_high_score_to_funnel', 'high_score_threshold', 'meeting_booking_url'];
+  const allowed = ['autopilot_enabled', 'searches_per_hour', 'max_results_per_search', 'repeat_interval_days', 'night_mode', 'sender_name', 'sender_email', 'reply_to', 'company_name', 'signature', 'auto_add_high_score_to_funnel', 'high_score_threshold', 'meeting_booking_url', 'send_paused'];
   for (const k of Object.keys(req.body)) {
     if (allowed.includes(k)) db.setSetting(k, req.body[k]);
   }
