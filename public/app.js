@@ -334,10 +334,13 @@ $('#exportBtn').addEventListener('click', () => {
   window.location = `/api/export.csv?${params}`;
 });
 
-// === ALL LEADS (geen score filter) ===
+// === ALL LEADS (echt alle leads, ongeacht stage/email/dismissed) ===
 async function loadAllLeads() {
   const params = new URLSearchParams();
-  params.set('limit', '1000');
+  params.set('limit', '2000');
+  params.set('allStages', 'true');
+  params.set('includeNoEmail', 'true');
+  params.set('includeDismissed', 'true');
   if (state.filterBranchAll) params.set('branch', state.filterBranchAll);
   if (state.filterCityAll) params.set('city', state.filterCityAll);
   if (state.filterAll === 'uncontacted') params.set('contacted', 'false');

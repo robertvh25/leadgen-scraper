@@ -318,7 +318,7 @@ const stmts = {
   setLeadDismissed: db.prepare(`UPDATE leads SET dismissed = ? WHERE id = ?`),
   updateLeadBriefingSlug: db.prepare(`UPDATE leads SET briefing_slug = ? WHERE id = ?`),
   updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
-  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) AND emails IS NOT NULL AND emails != '[]' AND emails != '' AND (dismissed IS NULL OR dismissed = 0) ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
+  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) AND (? = 1 OR (emails IS NOT NULL AND emails != '[]' AND emails != '')) AND (? = 1 OR dismissed IS NULL OR dismissed = 0) ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
   getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
   getTopLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') AND replacement_score IS NOT NULL ORDER BY replacement_score DESC, created_at DESC LIMIT 20`),
   getLead: db.prepare(`SELECT * FROM leads WHERE id = ?`),
@@ -448,11 +448,10 @@ module.exports = {
     const contacted = f.contacted ?? null;
     const branch = f.branch ?? null;
     const city = f.city ?? null;
-    // Standaard: alleen leads met stage 'new' (= nog niet in funnel) zodat
-    // overzichten niet vol staan met leads die al verwerkt zijn.
-    // Override met expliciete f.stage of f.allStages = true.
     let stage = f.stage ?? null;
     if (stage === null && !f.allStages) stage = 'new';
+    const includeNoEmail = f.includeNoEmail ? 1 : 0;
+    const includeDismissed = f.includeDismissed ? 1 : 0;
     const limit = f.limit ?? 500;
     return stmts.getAllLeads.all(
       minScore, minScore,
@@ -460,6 +459,8 @@ module.exports = {
       branch, branch,
       city, city,
       stage, stage,
+      includeNoEmail,
+      includeDismissed,
       limit
     );
   },

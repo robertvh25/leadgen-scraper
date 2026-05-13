@@ -230,6 +230,9 @@ app.get('/api/leads', (req, res) => {
     branch: req.query.branch || null,
     city: req.query.city || null,
     stage: req.query.stage || null,
+    allStages: req.query.allStages === 'true' || req.query.allStages === '1',
+    includeNoEmail: req.query.includeNoEmail === 'true' || req.query.includeNoEmail === '1',
+    includeDismissed: req.query.includeDismissed === 'true' || req.query.includeDismissed === '1',
     limit: req.query.limit ? parseInt(req.query.limit) : 500,
   };
   res.json(parseLeadList(db.getAllLeads(filters)));
@@ -454,9 +457,9 @@ app.post('/api/leads/bulk-funnel', async (req, res) => {
     || templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
   if (!tmpl) return res.status(400).json({ error: 'Geen "Eerste contact"-template gevonden' });
 
-  // Spreid mails 5 min uit elkaar; respecteer send-window
+  // Spreid mails 15 sec uit elkaar; respecteer send-window
   let cursor = sendWindow.nextSendableTime(new Date());
-  const SPACING_MS = 5 * 60 * 1000;
+  const SPACING_MS = 15 * 1000;
   let queued = 0;
 
   for (const c of candidates) {
