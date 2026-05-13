@@ -558,6 +558,24 @@ app.get('/api/admin/visual-backfill/status', (_, res) => {
   res.json(visualBackfillStats);
 });
 
+// Dedupe Gmail-Verzonden folder. Vindt mails met identieke (to, subject) die
+// binnen 60s na elkaar zijn aangekomen — dat zijn de pre-v4.52 dubbele copies
+// (Gmail's eigen save + onze IMAP-append). Dry-run by default; ?apply=1
+// verplaatst de dubbele naar Trash (recoverable, niet expunge).
+// Query: ?days=30 (scope), ?seconds=60 (max-tijd tussen dup-paren).
+app.post('/api/admin/dedupe-sent', async (req, res) => {
+  const days = Math.max(1, Math.min(parseInt(req.query.days || req.body?.days || '30'), 365));
+  const maxSecondsBetween = Math.max(1, Math.min(parseInt(req.query.seconds || req.body?.seconds || '60'), 600));
+  const apply = req.query.apply === '1' || req.body?.apply === true;
+  try {
+    const { dedupeSentFolder } = require('./lib/sent-dedupe');
+    const result = await dedupeSentFolder({ days, maxSecondsBetween, apply });
+    res.json({ ok: true, dry: !apply, days, max_seconds_between: maxSecondsBetween, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/admin/respace-pending', (req, res) => {
   // Herverdeel alle pending email-actions met spacing van 15 sec vanaf nextSendableTime.
   // Niet voor email_reply (die handmatig).

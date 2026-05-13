@@ -758,7 +758,38 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btn) btn.addEventListener('click', () => window.rescrapeEmails());
   const vb = document.getElementById('btnVisualBackfill');
   if (vb) vb.addEventListener('click', () => window.visualBackfill());
+  const ds = document.getElementById('btnDedupeSent');
+  if (ds) ds.addEventListener('click', () => window.dedupeSent());
 });
+
+window.dedupeSent = async () => {
+  const btn = document.getElementById('btnDedupeSent');
+  const stat = document.getElementById('dedupeSentStatus');
+  if (!btn) return;
+  btn.disabled = true;
+  stat.textContent = 'Scannen…';
+  try {
+    const preview = await api('/api/admin/dedupe-sent?days=30', { method: 'POST' });
+    if (!preview.duplicates_found) {
+      stat.textContent = `Niets gevonden — ${preview.scanned_in_range} mails gescand in laatste 30 dagen`;
+      btn.disabled = false;
+      return;
+    }
+    const ok = confirm(`Gevonden: ${preview.duplicates_found} duplicaten in ${preview.scanned_in_range} mails (laatste 30 dagen).\n\nVerplaats deze naar Trash? Ze blijven daar 30 dagen recoverable.`);
+    if (!ok) {
+      stat.textContent = `Geen actie — ${preview.duplicates_found} duplicaten staan er nog`;
+      btn.disabled = false;
+      return;
+    }
+    stat.textContent = 'Verplaatsen…';
+    const result = await api('/api/admin/dedupe-sent?days=30&apply=1', { method: 'POST' });
+    stat.textContent = `✓ ${result.moved_to_trash} van ${result.duplicates_found} verplaatst naar ${result.trash_folder || 'Trash'}`;
+    btn.disabled = false;
+  } catch (e) {
+    stat.textContent = 'Fout: ' + e.message;
+    btn.disabled = false;
+  }
+};
 
 window.visualBackfill = async () => {
   const btn = document.getElementById('btnVisualBackfill');

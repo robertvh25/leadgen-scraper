@@ -114,6 +114,13 @@
             <span id="visualBackfillStatus" style="margin-left:12px;color:var(--muted);"></span>
           </div>
 
+          <h2>Verzonden-folder dedupe</h2>
+          <div class="card" style="padding:16px;margin-bottom:18px;">
+            <p style="margin:0 0 10px 0;">Verwijdert de dubbele kopieën van verstuurde mails uit je Gmail Verzonden-folder (ontstaan vóór v4.52 door dubbele IMAP-append). Beschouwt mails als duplicaat als ze zelfde (To, Subject) hebben en binnen 60s na elkaar zijn aangekomen. Verplaatst naar Trash — daar 30 dagen recoverable.</p>
+            <button class="primary" id="btnDedupeSent">🧹 Scan & verwijder duplicaten (laatste 30 dagen)</button>
+            <span id="dedupeSentStatus" style="margin-left:12px;color:var(--muted);"></span>
+          </div>
+
           <h2>Auto-pilot status</h2>
           <div class="stats">
             <div class="stat">
