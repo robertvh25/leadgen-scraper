@@ -247,7 +247,7 @@ app.get('/api/bookings', (_, res) => {
   res.json(db.getBookings());
 });
 
-app.patch('/api/leads/:id', (req, res) => {
+app.patch('/api/leads/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const lead = db.getLead(id);
   if (!lead) return res.status(404).json({ error: 'Niet gevonden' });
@@ -259,17 +259,52 @@ app.patch('/api/leads/:id', (req, res) => {
       .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
     db.updateLeadEmails(id, clean);
   }
+  let triggered = null;
   if (typeof req.body.stage === 'string') {
     const newStage = req.body.stage;
     const valid = ['new', 'contacted', 'engaged', 'meeting_planned', 'briefing_sent', 'project', 'lost'];
     if (!valid.includes(newStage)) return res.status(400).json({ error: 'Ongeldige stage' });
+    const stageChanged = newStage !== lead.stage;
     db.updateLeadStage(id, newStage);
-    if (newStage !== 'new' && newStage !== lead.stage) {
+    if (newStage !== 'new' && stageChanged) {
       sequenceEngine.autoStartCampaignsForStage(id, newStage);
     }
+    // Handmatig terug-/inzetten naar 'contacted' → trigger eerste outreach-mail
+    if (newStage === 'contacted' && stageChanged) {
+      triggered = await triggerFirstOutreach(id);
+    }
   }
-  res.json({ ok: true });
+  res.json({ ok: true, mail: triggered });
 });
+
+// Helper: stuur "Eerste contact"-template (direct als in send-window, anders queue auto_send)
+async function triggerFirstOutreach(leadId) {
+  const lead = db.getLead(leadId);
+  if (!lead) return null;
+  parseLeadList([lead]);
+  const recipient = (lead.emails || [])[0];
+  if (!recipient) return { skipped: 'geen email' };
+  const templates = db.getTemplates();
+  const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')
+    || templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
+  if (!tmpl) return { skipped: 'geen template' };
+  const subject = render(tmpl.subject || '', lead);
+  const body = render(tmpl.body, lead);
+  const now = new Date();
+  if (sendWindow.isInSendWindow(now)) {
+    try { await sendEmail({ to: recipient, subject, body, leadId: lead.id }); }
+    catch (e) { return { error: e.message }; }
+    return { sent: true, at: 'direct' };
+  } else {
+    const at = sendWindow.nextSendableTime(now);
+    db.addPendingAction({
+      lead_id: lead.id, type: 'email', template_id: tmpl.id,
+      rendered_subject: subject, rendered_body: body, recipient,
+      scheduled_for: at.toISOString(), auto_send: 1,
+    });
+    return { queued: true, at: at.toISOString() };
+  }
+}
 
 app.post('/api/leads/:id/analyze', async (req, res) => {
   const lead = db.getLead(parseInt(req.params.id));
