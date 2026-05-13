@@ -624,6 +624,48 @@ window.bulkFunnelHighScore = async () => {
     setTimeout(() => { loadLeads(); loadDashboard(); }, 4000);
   } catch (e) { toast('Fout: ' + e.message, 'error'); }
 };
+window.rescrapeEmails = async () => {
+  const btn = document.getElementById('btnRescrapeEmails');
+  const stat = document.getElementById('rescrapeStatus');
+  if (!btn) return;
+  btn.disabled = true;
+  stat.textContent = 'Starten…';
+  try {
+    const res = await api('/api/admin/rescrape-emails', { method: 'POST', body: { limit: 50 } });
+    if (res.alreadyRunning) {
+      stat.textContent = 'Scan loopt al — wachten…';
+    } else if (res.processed !== undefined && res.processed === 0) {
+      stat.textContent = res.message || 'Niets te scannen';
+      btn.disabled = false;
+      return;
+    } else {
+      stat.textContent = `Bezig: 0 / ${res.totalQueued || '?'} verwerkt`;
+    }
+    // Poll status
+    const poll = setInterval(async () => {
+      try {
+        const s = await api('/api/admin/rescrape-emails/status');
+        const total = s.totalQueued || 0;
+        stat.textContent = `Bezig: ${s.processed} / ${total} verwerkt — ${s.found} emails gevonden`;
+        if (!s.running) {
+          clearInterval(poll);
+          stat.textContent = `✓ Klaar: ${s.found} emails gevonden in ${s.processed} leads`;
+          btn.disabled = false;
+          loadDashboard();
+        }
+      } catch (_) { clearInterval(poll); btn.disabled = false; }
+    }, 4000);
+  } catch (e) {
+    stat.textContent = 'Fout: ' + e.message;
+    btn.disabled = false;
+  }
+};
+// Bind button (after DOM-ready)
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('btnRescrapeEmails');
+  if (btn) btn.addEventListener('click', () => window.rescrapeEmails());
+});
+
 window.regenerateScreenshots = async () => {
   if (!confirm('Voor alle leads zonder screenshot een nieuwe genereren? Dit kan even duren.')) return;
   try {

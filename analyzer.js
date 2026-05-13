@@ -62,48 +62,157 @@ function isTableBasedLayout($) {
   return layoutTables >= 1;
 }
 
+const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+const CONTACT_PATHS = [
+  '/contact', '/contact.html', '/contact.php', '/contact-us', '/contactgegevens',
+  '/kontakt', '/over-ons', '/over', '/over-mij', '/about', '/about-us',
+  '/info', '/informatie', '/impressum', '/imprint', '/colofon',
+];
+const CONTACT_LINK_RE = /contact|kontakt|over[- ]?ons|over[- ]?mij|about|impressum|imprint|colofon|info|adres/i;
+const JUNK_TLDS = ['.png', '.jpg', '.jpeg', '.svg', '.gif', '.webp', '.ico', '.css', '.js'];
+const JUNK_DOMAINS = ['example.com', 'your-email', 'sentry.io', 'wixpress.com', 'cloudflare', 'godaddy', 'sentry-next.wixpress'];
+
+function cfDecode(cipher) {
+  try {
+    const r = parseInt(cipher.substr(0, 2), 16);
+    let out = '';
+    for (let i = 2; i < cipher.length; i += 2) {
+      out += String.fromCharCode(parseInt(cipher.substr(i, 2), 16) ^ r);
+    }
+    return out.toLowerCase();
+  } catch { return null; }
+}
+
+function deobfuscate(text) {
+  if (!text) return '';
+  return text
+    .replace(/&#0?64;|&commat;|&#x40;/gi, '@')
+    .replace(/&#46;|&period;|&#x2e;/gi, '.')
+    .replace(/\s*\[\s*at\s*\]\s*/gi, '@')
+    .replace(/\s*\(\s*at\s*\)\s*/gi, '@')
+    .replace(/\s*\{\s*at\s*\}\s*/gi, '@')
+    .replace(/\s+at\s+/gi, '@')
+    .replace(/\s*\[\s*dot\s*\]\s*/gi, '.')
+    .replace(/\s*\(\s*dot\s*\)\s*/gi, '.')
+    .replace(/\s*\{\s*dot\s*\}\s*/gi, '.')
+    .replace(/\s+dot\s+/gi, '.');
+}
+
+function isJunkEmail(e) {
+  e = e.toLowerCase();
+  if (JUNK_TLDS.some(t => e.endsWith(t))) return true;
+  if (JUNK_DOMAINS.some(d => e.includes(d))) return true;
+  if (/^(noreply|no-reply|donotreply|do-not-reply|postmaster|mailer-daemon|abuse|webmaster@(?:cloudflare|wix))/i.test(e)) return true;
+  return false;
+}
+
+function harvestPage($page, pageHtml, emails) {
+  const add = (text) => {
+    const matches = (deobfuscate(text || '').match(EMAIL_REGEX) || []);
+    for (const m of matches) {
+      const e = m.toLowerCase();
+      if (!isJunkEmail(e)) emails.add(e);
+    }
+  };
+  // Cloudflare email-protection (zeer veel gebruikt op kozijnsites)
+  $page('[data-cfemail]').each((_, el) => {
+    const cipher = $page(el).attr('data-cfemail');
+    if (cipher) { const d = cfDecode(cipher); if (d) add(d); }
+  });
+  for (const m of (pageHtml || '').matchAll(/data-cfemail=["']([0-9a-fA-F]+)["']/g)) {
+    const d = cfDecode(m[1]); if (d) add(d);
+  }
+  // mailto: links (incl. URL-encoded)
+  $page('a[href^="mailto:"]').each((_, el) => {
+    const href = $page(el).attr('href') || '';
+    try { add(decodeURIComponent(href.replace(/^mailto:/i, '').split('?')[0])); }
+    catch { add(href.replace(/^mailto:/i, '').split('?')[0]); }
+  });
+  // JSON-LD email-velden (Organization, LocalBusiness)
+  $page('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const data = JSON.parse($page(el).contents().text());
+      const stack = [data];
+      while (stack.length) {
+        const node = stack.pop();
+        if (!node) continue;
+        if (Array.isArray(node)) { stack.push(...node); continue; }
+        if (typeof node === 'object') {
+          if (typeof node.email === 'string') add(node.email);
+          for (const v of Object.values(node)) if (v && typeof v === 'object') stack.push(v);
+        }
+      }
+    } catch (_) {}
+  });
+  // Body-text (gevangen geobfusceerde adressen)
+  add($page('body').text());
+  // Raw HTML als vangnet
+  add(pageHtml);
+}
+
+async function fetchPage(url) {
+  try {
+    const resp = await axios.get(url, {
+      timeout: 8000, maxRedirects: 3,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Accept-Language': 'nl-NL,nl;q=0.9,en;q=0.8',
+      },
+      validateStatus: s => s < 500,
+    });
+    if (typeof resp.data === 'string' && resp.data.length > 100) return resp.data;
+  } catch (_) {}
+  return null;
+}
+
 async function scrapeEmails(baseUrl, $homepage, html) {
   const emails = new Set();
-  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-  const homepageEmails = (html.match(emailRegex) || [])
-    .filter(e => !e.endsWith('.png') && !e.endsWith('.jpg') && !e.endsWith('.svg'))
-    .filter(e => !e.includes('example.com') && !e.includes('your-email'))
-    .filter(e => !e.includes('sentry.io') && !e.includes('wixpress.com'));
-  homepageEmails.forEach(e => emails.add(e.toLowerCase()));
+  harvestPage($homepage, html, emails);
 
-  $homepage('a[href^="mailto:"]').each((_, el) => {
+  // Verzamel contact-links uit homepage + standaard-paden
+  const visited = new Set();
+  const candidates = [];
+  $homepage('a[href]').each((_, el) => {
     const href = $homepage(el).attr('href') || '';
-    const m = href.replace(/^mailto:/, '').split('?')[0];
-    if (m && emailRegex.test(m)) emails.add(m.toLowerCase());
-  });
-
-  if (emails.size === 0) {
-    const contactLinks = [];
-    $homepage('a[href]').each((_, el) => {
-      const href = $homepage(el).attr('href') || '';
-      const text = $homepage(el).text().toLowerCase();
-      if (/contact|kontakt/i.test(href) || /contact|kontakt/i.test(text)) {
-        try {
-          const url = new URL(href, baseUrl).toString();
-          contactLinks.push(url);
-        } catch (_) {}
-      }
-    });
-    for (const link of contactLinks.slice(0, 1)) {
+    const text = $homepage(el).text();
+    if (CONTACT_LINK_RE.test(href) || CONTACT_LINK_RE.test(text)) {
       try {
-        const resp = await axios.get(link, {
-          timeout: 10000, maxRedirects: 3,
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-        });
-        const html2 = resp.data || '';
-        const found = (html2.match(emailRegex) || [])
-          .filter(e => !e.endsWith('.png') && !e.endsWith('.jpg'));
-        found.forEach(e => emails.add(e.toLowerCase()));
-        if (emails.size > 0) break;
+        const url = new URL(href, baseUrl).toString();
+        if (!visited.has(url)) { candidates.push(url); visited.add(url); }
       } catch (_) {}
     }
+  });
+  for (const p of CONTACT_PATHS) {
+    try {
+      const url = new URL(p, baseUrl).toString();
+      if (!visited.has(url)) { candidates.push(url); visited.add(url); }
+    } catch (_) {}
   }
+
+  // Crawl tot 4 pagina's (stopt zodra we 3 emails hebben — anders gaan we tot het einde)
+  for (const link of candidates.slice(0, 4)) {
+    if (emails.size >= 3) break;
+    const pageHtml = await fetchPage(link);
+    if (!pageHtml) continue;
+    try {
+      const $page = cheerio.load(pageHtml);
+      harvestPage($page, pageHtml, emails);
+    } catch (_) {}
+  }
+
   return [...emails].slice(0, 5);
+}
+
+async function scrapeEmailsForUrl(rawUrl) {
+  let url = (rawUrl || '').trim();
+  if (!url) return [];
+  if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
+  const html = await fetchPage(url);
+  if (!html) return [];
+  try {
+    const $ = cheerio.load(html);
+    return await scrapeEmails(url, $, html);
+  } catch { return []; }
 }
 
 async function analyzeWebsite(rawUrl) {
@@ -287,4 +396,4 @@ function calculateReplacementScore(r) {
   return Math.min(Math.round(score), 100);
 }
 
-module.exports = { analyzeWebsite };
+module.exports = { analyzeWebsite, scrapeEmailsForUrl };

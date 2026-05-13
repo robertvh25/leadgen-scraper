@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const { scrapeGoogleMaps } = require('./scraper');
-const { analyzeWebsite } = require('./analyzer');
+const { analyzeWebsite, scrapeEmailsForUrl } = require('./analyzer');
 const { takeScreenshot, getScreenshotDir } = require('./lib/screenshot');
 const { render, listAvailableVars } = require('./lib/template-renderer');
 const { sendEmail } = require('./lib/email-sender');
@@ -452,6 +452,46 @@ app.get('/api/admin/pending-diag', (req, res) => {
   const now_utc = new Date().toISOString();
   const sqlite_now = db.db.prepare(`SELECT datetime('now') AS n`).get().n;
   res.json({ total_pending: total, due_now: due, auto_due_now: auto_due, sent, failed, server_now_iso: now_utc, sqlite_now, sample });
+});
+
+// Rescrape emails voor leads zonder gevonden email-adres.
+// Loopt in batches; per request ~50 leads (kost ~5-10 min). Robert kan herhalen.
+let rescrapeInProgress = false;
+let rescrapeStats = { running: false, processed: 0, found: 0, totalQueued: 0, lastError: null, startedAt: null };
+app.post('/api/admin/rescrape-emails', async (req, res) => {
+  if (rescrapeInProgress) return res.json({ ok: true, alreadyRunning: true, stats: rescrapeStats });
+  const limit = Math.min(parseInt(req.body?.limit || '50'), 200);
+  const leads = db.getLeadsWithoutEmail(limit);
+  if (leads.length === 0) return res.json({ ok: true, processed: 0, found: 0, message: 'Alle leads met website hebben al een email-adres' });
+
+  rescrapeInProgress = true;
+  rescrapeStats = { running: true, processed: 0, found: 0, totalQueued: leads.length, lastError: null, startedAt: new Date().toISOString() };
+  res.json({ ok: true, started: true, totalQueued: leads.length, message: `Email-scan gestart voor ${leads.length} leads — check status via /api/admin/rescrape-emails/status` });
+
+  (async () => {
+    try {
+      for (const lead of leads) {
+        try {
+          const emails = await scrapeEmailsForUrl(lead.website);
+          if (emails && emails.length > 0) {
+            db.updateLeadEmails(lead.id, emails);
+            rescrapeStats.found++;
+          }
+        } catch (e) {
+          rescrapeStats.lastError = `lead ${lead.id}: ${e.message}`;
+        }
+        rescrapeStats.processed++;
+        await new Promise(r => setTimeout(r, 500)); // throttle iets
+      }
+    } finally {
+      rescrapeStats.running = false;
+      rescrapeInProgress = false;
+    }
+  })();
+});
+
+app.get('/api/admin/rescrape-emails/status', (_, res) => {
+  res.json(rescrapeStats);
 });
 
 app.post('/api/admin/respace-pending', (req, res) => {

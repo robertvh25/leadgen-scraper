@@ -62,9 +62,9 @@
               <div class="stat-sub" id="dTotalSub">—</div>
             </div>
             <div class="stat">
-              <div class="stat-label">Score ≥ 60</div>
+              <div class="stat-label">Score ≥ 40, mailbaar</div>
               <div class="stat-value accent" id="dHighScore">0</div>
-              <div class="stat-sub">Hoge potentie</div>
+              <div class="stat-sub">Heeft email, nog niet benaderd</div>
             </div>
             <div class="stat">
               <div class="stat-label">Vandaag binnen</div>
@@ -81,6 +81,13 @@
           <h2>Top kansen vandaag</h2>
           <div class="leads-grid" id="topLeadsGrid">
             <div class="empty"><h3>Nog geen nieuwe leads vandaag</h3><p>Auto-pilot vult deze lijst gedurende de dag</p></div>
+          </div>
+
+          <h2>Email-scan</h2>
+          <div class="card" style="padding:16px;margin-bottom:18px;">
+            <p style="margin:0 0 10px 0;">Vind alsnog email-adressen voor leads zonder gescrapete email (Cloudflare-decoder, contact-pagina's, JSON-LD, geobfusceerde adressen).</p>
+            <button class="primary" id="btnRescrapeEmails">📧 Scan emails opnieuw (50 leads)</button>
+            <span id="rescrapeStatus" style="margin-left:12px;color:var(--muted);"></span>
           </div>
 
           <h2>Auto-pilot status</h2>
