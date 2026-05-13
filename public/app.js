@@ -264,7 +264,7 @@ async function loadLeads() {
   else if (state.filter === '80') params.set('minScore', '80');
   else if (state.filter === 'uncontacted') {
     params.set('minScore', '40');
-    params.set('contacted', 'false');
+    params.set('stage', 'new');
   }
 
   state.leads = await api(`/api/leads?${params}`);
@@ -330,7 +330,7 @@ $('#exportBtn').addEventListener('click', () => {
   if (state.filter === '50') params.set('minScore', '50');
   if (state.filter === '60') params.set('minScore', '60');
   if (state.filter === '80') params.set('minScore', '80');
-  if (state.filter === 'uncontacted') { params.set('minScore', '40'); params.set('contacted', 'false'); }
+  if (state.filter === 'uncontacted') { params.set('minScore', '40'); params.set('stage', 'new'); }
   window.location = `/api/export.csv?${params}`;
 });
 
@@ -343,7 +343,7 @@ async function loadAllLeads() {
   params.set('includeDismissed', 'true');
   if (state.filterBranchAll) params.set('branch', state.filterBranchAll);
   if (state.filterCityAll) params.set('city', state.filterCityAll);
-  if (state.filterAll === 'uncontacted') params.set('contacted', 'false');
+  if (state.filterAll === 'uncontacted') params.set('stage', 'new');
   state.allLeads = await api(`/api/leads?${params}`);
   // Client-side filter voor analyzed/unanalyzed
   if (state.filterAll === 'analyzed') {
