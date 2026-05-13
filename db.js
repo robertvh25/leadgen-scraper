@@ -381,7 +381,16 @@ const stmts = {
   updateProject: db.prepare(`UPDATE projects SET name = ?, status = ?, notes = ? WHERE id = ?`),
   deleteProject: db.prepare(`DELETE FROM projects WHERE id = ?`),
   // Stats
-  getDashboardStats: db.prepare(`SELECT (SELECT COUNT(*) FROM leads) AS total_leads, (SELECT COUNT(*) FROM leads WHERE analyzed = 1) AS analyzed_leads, (SELECT COUNT(*) FROM leads WHERE replacement_score >= 60) AS high_score_leads, (SELECT COUNT(*) FROM leads WHERE replacement_score >= 80) AS very_high_score_leads, (SELECT COUNT(*) FROM leads WHERE created_at >= datetime('now', '-1 day')) AS leads_today, (SELECT COUNT(*) FROM leads WHERE contacted = 1) AS contacted, (SELECT COUNT(*) FROM leads WHERE stage NOT IN ('new', 'lost')) AS in_funnel, (SELECT COUNT(DISTINCT branch_name) FROM leads) AS unique_branches, (SELECT COUNT(DISTINCT city_name) FROM leads) AS unique_cities`),
+  getDashboardStats: db.prepare(`SELECT
+    (SELECT COUNT(*) FROM leads) AS total_leads,
+    (SELECT COUNT(*) FROM leads WHERE analyzed = 1) AS analyzed_leads,
+    (SELECT COUNT(*) FROM leads WHERE replacement_score >= 60 AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != '') AS high_score_leads,
+    (SELECT COUNT(*) FROM leads WHERE replacement_score >= 80 AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != '') AS very_high_score_leads,
+    (SELECT COUNT(*) FROM leads WHERE created_at >= datetime('now', '-1 day')) AS leads_today,
+    (SELECT COUNT(*) FROM leads WHERE contacted = 1) AS contacted,
+    (SELECT COUNT(*) FROM leads WHERE stage NOT IN ('new', 'lost')) AS in_funnel,
+    (SELECT COUNT(DISTINCT branch_name) FROM leads) AS unique_branches,
+    (SELECT COUNT(DISTINCT city_name) FROM leads) AS unique_cities`),
   deleteSearch: db.prepare(`DELETE FROM searches WHERE id = ?`),
   deleteLeadsBySearch: db.prepare(`DELETE FROM leads WHERE search_id = ?`),
   getSearches: db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM leads WHERE search_id = s.id) AS lead_count FROM searches s ORDER BY created_at DESC LIMIT 100`),
