@@ -157,6 +157,7 @@ addColumnIfMissing('pending_actions', 'in_reply_to_message_id', 'TEXT');
 addColumnIfMissing('pending_actions', 'intent', 'TEXT');
 addColumnIfMissing('communications', 'read', 'INTEGER DEFAULT 0');
 addColumnIfMissing('leads', 'briefing_slug', 'TEXT');
+addColumnIfMissing('leads', 'dismissed', 'INTEGER DEFAULT 0');
 // Bestaande outbound communications hoeven niet "ongelezen" te staan
 try { db.exec(`UPDATE communications SET read = 1 WHERE direction = 'outbound' AND (read = 0 OR read IS NULL)`); } catch {}
 
@@ -314,9 +315,10 @@ const stmts = {
   updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ? WHERE id = ?`),
   updateLeadScreenshot: db.prepare(`UPDATE leads SET screenshot_path = ? WHERE id = ?`),
   updateLeadEmails: db.prepare(`UPDATE leads SET emails = ? WHERE id = ?`),
+  setLeadDismissed: db.prepare(`UPDATE leads SET dismissed = ? WHERE id = ?`),
   updateLeadBriefingSlug: db.prepare(`UPDATE leads SET briefing_slug = ? WHERE id = ?`),
   updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
-  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) AND emails IS NOT NULL AND emails != '[]' AND emails != '' ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
+  getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) AND emails IS NOT NULL AND emails != '[]' AND emails != '' AND (dismissed IS NULL OR dismissed = 0) ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
   getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
   getTopLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') AND replacement_score IS NOT NULL ORDER BY replacement_score DESC, created_at DESC LIMIT 20`),
   getLead: db.prepare(`SELECT * FROM leads WHERE id = ?`),
@@ -429,6 +431,7 @@ module.exports = {
   updateLeadScreenshot: (id, path) => stmts.updateLeadScreenshot.run(path, id),
   updateLeadEmails: (id, emails) => stmts.updateLeadEmails.run(JSON.stringify(emails || []), id),
   setLeadBriefingSlug: (id, slug) => stmts.updateLeadBriefingSlug.run(slug, id),
+  setLeadDismissed: (id, dismissed) => stmts.setLeadDismissed.run(dismissed ? 1 : 0, id),
   updateLeadStage: (id, stage) => stmts.updateLeadStage.run(stage, stage, id),
   advanceLeadStage: (id, targetStage) => {
     const lead = stmts.getLead.get(id);

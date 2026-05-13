@@ -257,6 +257,7 @@ app.patch('/api/leads/:id', async (req, res) => {
   const lead = db.getLead(id);
   if (!lead) return res.status(404).json({ error: 'Niet gevonden' });
   if (typeof req.body.contacted === 'boolean') db.markContacted(id, req.body.contacted);
+  if (typeof req.body.dismissed === 'boolean') db.setLeadDismissed(id, req.body.dismissed);
   if (typeof req.body.notes === 'string') db.updateNotes(id, req.body.notes);
   if (Array.isArray(req.body.emails)) {
     const clean = req.body.emails
@@ -444,9 +445,9 @@ app.post('/api/leads/bulk-funnel', async (req, res) => {
   if (Array.isArray(req.body?.ids) && req.body.ids.length > 0) {
     const ids = req.body.ids.map(Number).filter(Boolean);
     const placeholders = ids.map(() => '?').join(',');
-    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE id IN (${placeholders}) AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(...ids);
+    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE id IN (${placeholders}) AND stage = 'new' AND (dismissed IS NULL OR dismissed = 0) AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(...ids);
   } else {
-    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all();
+    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE stage = 'new' AND (dismissed IS NULL OR dismissed = 0) AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all();
   }
   const templates = db.getTemplates();
   const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')

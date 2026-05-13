@@ -237,6 +237,7 @@ function renderLeadCard(l) {
         </div>
         <div class="lead-actions">
           ${(!l.stage || l.stage === 'new') ? `<button class="tiny" onclick="event.stopPropagation(); startLeadFunnel(${l.id})" title="In funnel zetten + eerste mail versturen">→ Funnel</button>` : ''}
+          ${(!l.stage || l.stage === 'new') ? `<button class="tiny ghost" onclick="event.stopPropagation(); dismissLead(${l.id})" title="Markeer als niet interessant (verbergt uit overzicht)">🚫 Niet</button>` : ''}
           <button class="tiny secondary" onclick="event.stopPropagation(); openLeadDetail(${l.id})">Open →</button>
         </div>
       </div>
@@ -448,6 +449,7 @@ async function openLeadDetail(id) {
         ${lead.website ? `<button class="ghost" onclick="window.open('${escapeHtml(lead.website)}','_blank')">↗ Open website</button>` : ''}
         ${lead.google_maps_url ? `<button class="ghost" onclick="window.open('${escapeHtml(lead.google_maps_url)}','_blank')">↗ Google Maps</button>` : ''}
         <button class="ghost" onclick="reanalyzeLead(${lead.id})">↻ Opnieuw analyseren</button>
+        ${(!lead.stage || lead.stage === 'new') ? `<button class="ghost" onclick="dismissLead(${lead.id})" style="color:var(--danger);">🚫 Niet interessant</button>` : ''}
       </div>
 
       <div class="tabs">
@@ -614,6 +616,15 @@ window.regenerateScreenshots = async () => {
   try {
     const res = await api('/api/leads/regenerate-screenshots', { method: 'POST' });
     toast(res.message || `Batch gestart voor ${res.queued} leads`);
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
+window.dismissLead = async (id) => {
+  try {
+    await api(`/api/leads/${id}`, { method: 'PATCH', body: { dismissed: true } });
+    toast('🚫 Lead als niet interessant gemarkeerd');
+    if (state.view === 'leads') loadLeads();
+    else if (state.view === 'all-leads') loadAllLeads();
+    loadDashboard();
   } catch (e) { toast('Fout: ' + e.message, 'error'); }
 };
 window.startLeadFunnel = async (id) => {
