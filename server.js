@@ -515,6 +515,76 @@ app.post('/api/admin/respace-pending', (req, res) => {
   res.json({ ok: true, rescheduled: pending.length, last_scheduled: cursor.toISOString() });
 });
 
+// Cleanup-endpoint: trekt leads met score onder de drempel uit de funnel
+// terug naar stage='new' en cancelt hun geplande mails. Dry-run by default,
+// pas met ?apply=1 commit hij naar de DB.
+//
+// Voorbeeld:
+//   curl -X POST .../api/admin/funnel-cleanup-low-score          → preview
+//   curl -X POST .../api/admin/funnel-cleanup-low-score?apply=1  → execute
+//   ?threshold=50 overschrijft default uit settings
+app.post('/api/admin/funnel-cleanup-low-score', (req, res) => {
+  const threshold = parseInt(
+    req.query.threshold || db.getSetting('high_score_threshold') || '40'
+  );
+  const apply = req.query.apply === '1' || req.body?.apply === true;
+
+  // Vind leads in funnel met score onder drempel (NULL telt niet als "onder")
+  const matched = db.db.prepare(`
+    SELECT id, name, replacement_score, stage
+    FROM leads
+    WHERE stage NOT IN ('new', 'lost')
+      AND replacement_score IS NOT NULL
+      AND replacement_score < ?
+    ORDER BY replacement_score ASC, name ASC
+  `).all(threshold);
+
+  // Tel pending acties die we zouden cancelen
+  const ids = matched.map(l => l.id);
+  let pendingCount = 0;
+  if (ids.length > 0) {
+    const placeholders = ids.map(() => '?').join(',');
+    pendingCount = db.db.prepare(
+      `SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending' AND lead_id IN (${placeholders})`
+    ).get(...ids).c;
+  }
+
+  if (!apply) {
+    return res.json({
+      dry: true,
+      threshold,
+      matched_leads: matched.length,
+      pending_actions_to_cancel: pendingCount,
+      sample: matched.slice(0, 20),
+      message: matched.length === 0
+        ? 'Geen leads onder drempel in funnel — niets te doen.'
+        : `Preview: zou ${matched.length} leads terug naar 'new' zetten en ${pendingCount} mails cancelen. Voeg ?apply=1 toe om uit te voeren.`,
+    });
+  }
+
+  // Execute — alles in transaction zodat partial failures terug rollen
+  const tx = db.db.transaction(() => {
+    let revertedLeads = 0;
+    let cancelledActions = 0;
+    for (const lead of matched) {
+      const r1 = db.db.prepare(`UPDATE pending_actions SET status = 'cancelled' WHERE lead_id = ? AND status = 'pending'`).run(lead.id);
+      cancelledActions += r1.changes;
+      const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE id = ? AND stage NOT IN ('new', 'lost')`).run(lead.id);
+      revertedLeads += r2.changes;
+    }
+    return { revertedLeads, cancelledActions };
+  });
+  const result = tx();
+
+  res.json({
+    dry: false,
+    threshold,
+    reverted_leads: result.revertedLeads,
+    cancelled_actions: result.cancelledActions,
+    message: `${result.revertedLeads} leads terug naar 'new', ${result.cancelledActions} pending mails gecancelled.`,
+  });
+});
+
 app.post('/api/leads/bulk-funnel', async (req, res) => {
   // Manueel bulk: respecteert high_score_threshold (default 40) wanneer geen
   // body.ids meegegeven — matcht de "Hoge score leads"-view die de UI toont.
