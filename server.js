@@ -516,15 +516,17 @@ app.post('/api/admin/respace-pending', (req, res) => {
 });
 
 app.post('/api/leads/bulk-funnel', async (req, res) => {
-  // Manueel bulk-versturen: GEEN score-filter (Robert beslist bewust welke).
-  // Optioneel filter via body.ids = [list] om specifiek subset te pakken.
+  // Manueel bulk: respecteert high_score_threshold (default 40) wanneer geen
+  // body.ids meegegeven — matcht de "Hoge score leads"-view die de UI toont.
+  // Voor expliciete body.ids geldt de threshold NIET (caller kiest bewust).
   let candidates;
   if (Array.isArray(req.body?.ids) && req.body.ids.length > 0) {
     const ids = req.body.ids.map(Number).filter(Boolean);
     const placeholders = ids.map(() => '?').join(',');
     candidates = db.db.prepare(`SELECT id, name FROM leads WHERE id IN (${placeholders}) AND stage = 'new' AND (dismissed IS NULL OR dismissed = 0) AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(...ids);
   } else {
-    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE stage = 'new' AND (dismissed IS NULL OR dismissed = 0) AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all();
+    const threshold = parseInt(db.getSetting('high_score_threshold') || '40');
+    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE replacement_score >= ? AND stage = 'new' AND (dismissed IS NULL OR dismissed = 0) AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(threshold);
   }
   const templates = db.getTemplates();
   const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')
