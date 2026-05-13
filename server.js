@@ -441,6 +441,21 @@ app.post('/api/leads/:id/create-briefing', async (req, res) => {
   });
 });
 
+app.post('/api/admin/respace-pending', (req, res) => {
+  // Herverdeel alle pending email-actions met spacing van 15 sec vanaf nextSendableTime.
+  // Niet voor email_reply (die handmatig).
+  const SPACING_MS = 15 * 1000;
+  const pending = db.db.prepare(`SELECT id FROM pending_actions WHERE status = 'pending' AND auto_send = 1 AND type = 'email' ORDER BY scheduled_for ASC`).all();
+  let cursor = sendWindow.nextSendableTime(new Date());
+  const upd = db.db.prepare(`UPDATE pending_actions SET scheduled_for = ? WHERE id = ?`);
+  for (const p of pending) {
+    cursor = sendWindow.nextSendableTime(cursor);
+    upd.run(cursor.toISOString(), p.id);
+    cursor = new Date(cursor.getTime() + SPACING_MS);
+  }
+  res.json({ ok: true, rescheduled: pending.length, last_scheduled: cursor.toISOString() });
+});
+
 app.post('/api/leads/bulk-funnel', async (req, res) => {
   // Manueel bulk-versturen: GEEN score-filter (Robert beslist bewust welke).
   // Optioneel filter via body.ids = [list] om specifiek subset te pakken.
