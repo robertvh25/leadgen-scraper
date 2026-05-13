@@ -459,10 +459,12 @@ async function openLeadDetail(id) {
         ${phone ? `<button class="secondary" onclick="openSendDialog(${lead.id}, 'whatsapp')">💬 WhatsApp</button>` : ''}
         ${phone ? `<a href="tel:${escapeHtml(phone)}" style="text-decoration:none;"><button class="secondary">📞 Bel</button></a>` : ''}
         <button class="secondary" onclick="moveLeadToStage(${lead.id})">→ Naar funnel</button>
+        ${['contacted','engaged','meeting_planned','briefing_sent'].includes(lead.stage) ? `<button class="ghost" onclick="markLeadLost(${lead.id})" style="color:var(--danger);">✗ Markeer als verloren</button>` : ''}
         ${lead.website ? `<button class="ghost" onclick="window.open('${escapeHtml(lead.website)}','_blank')">↗ Open website</button>` : ''}
         ${lead.google_maps_url ? `<button class="ghost" onclick="window.open('${escapeHtml(lead.google_maps_url)}','_blank')">↗ Google Maps</button>` : ''}
         <button class="ghost" onclick="reanalyzeLead(${lead.id})">↻ Opnieuw analyseren</button>
         ${(!lead.stage || lead.stage === 'new') ? `<button class="ghost" onclick="dismissLead(${lead.id})" style="color:var(--danger);">🚫 Niet interessant</button>` : ''}
+        ${lead.stage === 'lost' && lead.loss_reason ? `<span class="pill" style="background:var(--danger-glow,#ffe5e5);color:var(--danger);align-self:center;">Verloren · ${escapeHtml(lead.loss_reason)}</span>` : ''}
       </div>
 
       <div class="tabs">
@@ -718,6 +720,63 @@ window.editLeadEmails = async (id) => {
   toast('✓ Opgeslagen');
   openLeadDetail(id);
 };
+window.markLeadLost = (id) => {
+  const REASONS = [
+    'Geen interesse',
+    'Te duur / geen budget',
+    'Al een leverancier',
+    'Niet de juiste persoon',
+    'Slechte timing',
+    'Geen reactie meer',
+    'Verkeerde branche / verkeerde lead',
+  ];
+  const lead = state.currentLead || {};
+  const modal = document.getElementById('templateModal');
+  const content = document.getElementById('templateModalContent');
+  content.innerHTML = `
+    <h2>Markeer "${escapeHtml(lead.name || '')}" als verloren</h2>
+    <p style="color:var(--text-dim); margin-bottom:14px;">Reden (kies één of vul anders zelf in)</p>
+    <div id="lossReasonOptions" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+      ${REASONS.map(r => `<label style="display:flex;gap:8px;align-items:center;cursor:pointer;"><input type="radio" name="lossReason" value="${escapeHtml(r)}"> ${escapeHtml(r)}</label>`).join('')}
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer;"><input type="radio" name="lossReason" value="__custom"> Anders, namelijk:</label>
+    </div>
+    <input type="text" id="lossReasonCustom" placeholder="Vul reden in..." style="width:100%;margin-bottom:14px;" disabled>
+    <div class="modal-actions">
+      <button class="ghost" onclick="closeModal('templateModal')">Annuleren</button>
+      <button onclick="confirmMarkLost(${id})" style="background:var(--danger);color:#fff;">Markeer als verloren</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  // Enable custom input when "__custom" radio is selected
+  content.querySelectorAll('input[name="lossReason"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const customInput = content.querySelector('#lossReasonCustom');
+      customInput.disabled = r.value !== '__custom';
+      if (r.value === '__custom') customInput.focus();
+    });
+  });
+};
+
+window.confirmMarkLost = async (id) => {
+  const content = document.getElementById('templateModalContent');
+  const checked = content.querySelector('input[name="lossReason"]:checked');
+  if (!checked) { toast('Kies een reden', 'error'); return; }
+  let reason = checked.value;
+  if (reason === '__custom') {
+    reason = (content.querySelector('#lossReasonCustom').value || '').trim();
+    if (!reason) { toast('Vul reden in', 'error'); return; }
+  }
+  try {
+    await api(`/api/leads/${id}`, { method: 'PATCH', body: { stage: 'lost', loss_reason: reason } });
+    closeModal('templateModal');
+    toast(`✗ Lead gemarkeerd als verloren: ${reason}`, 'success', 4000);
+    // Refresh
+    if (state.view === 'lead-detail') openLeadDetail(id);
+    else if (state.view === 'funnel') loadFunnel();
+    loadDashboard();
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
+
 window.moveLeadToStage = async (id) => {
   const stages = STAGES.filter(s => s.id !== 'new');
   const choice = prompt(`Naar welke stage?\n${stages.map((s, i) => `${i+1}. ${s.label}`).join('\n')}\n\nKies nummer:`);

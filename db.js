@@ -158,6 +158,8 @@ addColumnIfMissing('pending_actions', 'intent', 'TEXT');
 addColumnIfMissing('communications', 'read', 'INTEGER DEFAULT 0');
 addColumnIfMissing('leads', 'briefing_slug', 'TEXT');
 addColumnIfMissing('leads', 'dismissed', 'INTEGER DEFAULT 0');
+addColumnIfMissing('leads', 'loss_reason', 'TEXT');
+addColumnIfMissing('leads', 'lost_at', 'DATETIME');
 // Bestaande outbound communications hoeven niet "ongelezen" te staan
 try { db.exec(`UPDATE communications SET read = 1 WHERE direction = 'outbound' AND (read = 0 OR read IS NULL)`); } catch {}
 
@@ -340,6 +342,7 @@ const stmts = {
   setLeadDismissed: db.prepare(`UPDATE leads SET dismissed = ? WHERE id = ?`),
   updateLeadBriefingSlug: db.prepare(`UPDATE leads SET briefing_slug = ? WHERE id = ?`),
   updateLeadStage: db.prepare(`UPDATE leads SET stage = ?, deal_added_at = CASE WHEN ? != 'new' AND deal_added_at IS NULL THEN datetime('now') ELSE deal_added_at END WHERE id = ?`),
+  markLeadLost: db.prepare(`UPDATE leads SET stage = 'lost', loss_reason = ?, lost_at = datetime('now') WHERE id = ?`),
   getAllLeads: db.prepare(`SELECT * FROM leads WHERE (? IS NULL OR replacement_score >= ?) AND (? IS NULL OR contacted = ?) AND (? IS NULL OR branch_name = ?) AND (? IS NULL OR city_name = ?) AND (? IS NULL OR stage = ?) AND (? = 1 OR (emails IS NOT NULL AND emails != '[]' AND emails != '')) AND (? = 1 OR dismissed IS NULL OR dismissed = 0) ORDER BY replacement_score DESC, created_at DESC LIMIT ?`),
   getNewLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') ORDER BY replacement_score DESC NULLS LAST LIMIT 50`),
   getTopLeadsToday: db.prepare(`SELECT * FROM leads WHERE created_at >= datetime('now', '-1 day') AND replacement_score IS NOT NULL ORDER BY replacement_score DESC, created_at DESC LIMIT 20`),
@@ -374,7 +377,9 @@ const stmts = {
   // Pending actions
   insertPendingAction: db.prepare(`INSERT INTO pending_actions (lead_id, campaign_id, step_id, type, template_id, rendered_subject, rendered_body, recipient, scheduled_for, auto_send, in_reply_to_message_id, intent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   getPendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name, l.website AS lead_website, l.replacement_score FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND datetime(pa.scheduled_for) <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 50`),
-  getDuePendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.auto_send = 1 AND datetime(pa.scheduled_for) <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 20`),
+  getDuePendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.auto_send = 1 AND datetime(pa.scheduled_for) <= datetime('now') AND (l.stage IS NULL OR l.stage != 'lost') ORDER BY pa.scheduled_for ASC LIMIT 20`),
+  cancelPendingForLead: db.prepare(`UPDATE pending_actions SET status = 'cancelled' WHERE lead_id = ? AND status = 'pending'`),
+  cancelCampaignsForLead: db.prepare(`UPDATE lead_campaigns SET status = 'cancelled' WHERE lead_id = ? AND status = 'active'`),
   getPendingAction: db.prepare(`SELECT * FROM pending_actions WHERE id = ?`),
   updatePendingActionStatus: db.prepare(`UPDATE pending_actions SET status = ? WHERE id = ?`),
   updatePendingActionBody: db.prepare(`UPDATE pending_actions SET rendered_subject = ?, rendered_body = ? WHERE id = ?`),
@@ -478,6 +483,11 @@ module.exports = {
   setLeadBriefingSlug: (id, slug) => stmts.updateLeadBriefingSlug.run(slug, id),
   setLeadDismissed: (id, dismissed) => stmts.setLeadDismissed.run(dismissed ? 1 : 0, id),
   updateLeadStage: (id, stage) => stmts.updateLeadStage.run(stage, stage, id),
+  markLeadLost: (id, reason) => {
+    stmts.markLeadLost.run(reason || null, id);
+    stmts.cancelPendingForLead.run(id);
+    stmts.cancelCampaignsForLead.run(id);
+  },
   advanceLeadStage: (id, targetStage) => {
     const lead = stmts.getLead.get(id);
     if (!lead) return false;

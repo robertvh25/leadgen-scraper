@@ -274,8 +274,14 @@ app.patch('/api/leads/:id', async (req, res) => {
     const valid = ['new', 'contacted', 'engaged', 'meeting_planned', 'briefing_sent', 'project', 'lost'];
     if (!valid.includes(newStage)) return res.status(400).json({ error: 'Ongeldige stage' });
     const stageChanged = newStage !== lead.stage;
-    db.updateLeadStage(id, newStage);
-    if (newStage !== 'new' && stageChanged) {
+    if (newStage === 'lost') {
+      // Markeer als verloren met (optionele) reden
+      const reason = typeof req.body.loss_reason === 'string' ? req.body.loss_reason.trim() : null;
+      db.markLeadLost(id, reason);
+    } else {
+      db.updateLeadStage(id, newStage);
+    }
+    if (newStage !== 'new' && newStage !== 'lost' && stageChanged) {
       sequenceEngine.autoStartCampaignsForStage(id, newStage);
     }
     // Handmatig terug-/inzetten naar 'contacted' → trigger eerste outreach-mail
