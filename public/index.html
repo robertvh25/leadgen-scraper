@@ -41,7 +41,10 @@
         <div style="color:#7f1d1d;font-weight:600;font-size:14px;">
           ⏸ Verzending gepauzeerd — er gaat geen enkele auto-mail uit. <span id="sendPausePendingInfo" style="font-weight:400;color:#991b1b"></span>
         </div>
-        <button onclick="toggleSendPause()" style="background:#dc2626;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">▶ Hervat verzending</button>
+        <div style="display:flex;gap:8px;">
+          <button onclick="cancelRecentBatch()" title="Cancel pending mails van de laatste 30 min + zet die leads terug naar 'new'" style="background:#fff;color:#dc2626;border:1px solid #dc2626;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">🗑 Cancel laatste 30 min</button>
+          <button onclick="toggleSendPause()" style="background:#dc2626;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">▶ Hervat verzending</button>
+        </div>
       </div>
       <div class="topbar" style="margin-bottom:8px;">
         <h1 class="topbar-title" id="topbarTitle" style="margin:0;">Dashboard</h1>

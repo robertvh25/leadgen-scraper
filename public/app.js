@@ -230,6 +230,23 @@ function updateSendPauseUI(settings, pendingCount) {
   }
 }
 
+window.cancelRecentBatch = async () => {
+  const minutes = parseInt(prompt('Cancel pending mails aangemaakt in de laatste hoeveel minuten?', '30')) || 30;
+  if (minutes <= 0) return;
+  try {
+    // Eerst dry-run om aantal te tonen
+    const preview = await api(`/api/admin/funnel-revert-recent?minutes=${minutes}`, { method: 'POST' });
+    if (!preview.pending_to_cancel) {
+      toast(`Geen pending mails in laatste ${minutes} min — niets te doen.`);
+      return;
+    }
+    if (!confirm(`${preview.pending_to_cancel} pending mails cancellen en ${preview.unique_leads} leads terug naar 'new' zetten?\n\nDit raakt ALLE leads die in deze periode in funnel kwamen — ook de leads die je wel bewust hebt toegevoegd.`)) return;
+    const res = await api(`/api/admin/funnel-revert-recent?minutes=${minutes}&apply=1`, { method: 'POST' });
+    toast(res.message || `${res.cancelled_actions} mails gecancelled`);
+    loadDashboard();
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
+
 window.toggleSendPause = async () => {
   const next = !(state.settings && state.settings.send_paused === '1');
   try {
