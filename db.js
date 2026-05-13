@@ -407,8 +407,8 @@ const stmts = {
   getDashboardStats: db.prepare(`SELECT
     (SELECT COUNT(*) FROM leads) AS total_leads,
     (SELECT COUNT(*) FROM leads WHERE analyzed = 1) AS analyzed_leads,
-    (SELECT COUNT(*) FROM leads WHERE replacement_score >= 60 AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != '') AS high_score_leads,
-    (SELECT COUNT(*) FROM leads WHERE replacement_score >= 80 AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != '') AS very_high_score_leads,
+    (SELECT COUNT(*) FROM leads WHERE replacement_score >= 40 AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != '' AND (dismissed IS NULL OR dismissed = 0)) AS high_score_leads,
+    (SELECT COUNT(*) FROM leads WHERE replacement_score >= 80 AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != '' AND (dismissed IS NULL OR dismissed = 0)) AS very_high_score_leads,
     (SELECT COUNT(*) FROM leads WHERE created_at >= datetime('now', '-1 day')) AS leads_today,
     (SELECT COUNT(*) FROM leads WHERE contacted = 1) AS contacted,
     (SELECT COUNT(*) FROM leads WHERE stage NOT IN ('new', 'lost')) AS in_funnel,

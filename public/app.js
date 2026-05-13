@@ -257,17 +257,24 @@ async function loadLeads() {
   if (state.filterBranch) params.set('branch', state.filterBranch);
   if (state.filterCity) params.set('city', state.filterCity);
 
-  // Score filter: default 40, of wat user kiest
-  if (state.filter === '40') params.set('minScore', '40');
-  else if (state.filter === '50') params.set('minScore', '50');
-  else if (state.filter === '60') params.set('minScore', '60');
-  else if (state.filter === '80') params.set('minScore', '80');
-  else if (state.filter === 'uncontacted') {
-    params.set('minScore', '40');
+  // Score filter: alleen leads die we nog kunnen mailen (stage=new + heeft email)
+  const scoreFilters = { '40': '40', '50': '50', '60': '60', '80': '80', 'uncontacted': '40' };
+  if (scoreFilters[state.filter]) {
+    params.set('minScore', scoreFilters[state.filter]);
     params.set('stage', 'new');
   }
 
   state.leads = await api(`/api/leads?${params}`);
+  // Side-info: hoeveel leads boven dezelfde drempel hebben GEEN email?
+  state.leadsNoEmailCount = 0;
+  if (scoreFilters[state.filter]) {
+    try {
+      const altParams = new URLSearchParams(params);
+      altParams.set('includeNoEmail', 'true');
+      const all = await api(`/api/leads?${altParams}`);
+      state.leadsNoEmailCount = all.filter(l => !l.emails || l.emails.length === 0).length;
+    } catch { state.leadsNoEmailCount = 0; }
+  }
   renderLeads();
   populateFilterDropdowns();
 }
@@ -303,7 +310,10 @@ function renderLeads() {
     );
   }
   if (leads.length === 0) {
-    grid.innerHTML = `<div class="empty"><h3>geen leads</h3><p>Pas filters aan of wacht tot auto-pilot meer leads vindt</p></div>`;
+    const extra = state.leadsNoEmailCount > 0
+      ? `<p>${state.leadsNoEmailCount} lead(s) boven deze drempel hebben <strong>geen email-adres</strong> en zijn dus niet mailbaar — bekijk ze via <a href="#" onclick="switchView('all-leads');return false;">Alle leads</a>.</p>`
+      : `<p>Pas filters aan of wacht tot auto-pilot meer leads vindt.</p>`;
+    grid.innerHTML = `<div class="empty"><h3>Geen mailbare leads in deze view</h3>${extra}</div>`;
     return;
   }
   grid.innerHTML = leads.map(renderLeadCard).join('');
@@ -326,11 +336,11 @@ $('#exportBtn').addEventListener('click', () => {
   const params = new URLSearchParams();
   if (state.filterBranch) params.set('branch', state.filterBranch);
   if (state.filterCity) params.set('city', state.filterCity);
-  if (state.filter === '40') params.set('minScore', '40');
-  if (state.filter === '50') params.set('minScore', '50');
-  if (state.filter === '60') params.set('minScore', '60');
-  if (state.filter === '80') params.set('minScore', '80');
-  if (state.filter === 'uncontacted') { params.set('minScore', '40'); params.set('stage', 'new'); }
+  const scoreFilters = { '40': '40', '50': '50', '60': '60', '80': '80', 'uncontacted': '40' };
+  if (scoreFilters[state.filter]) {
+    params.set('minScore', scoreFilters[state.filter]);
+    params.set('stage', 'new');
+  }
   window.location = `/api/export.csv?${params}`;
 });
 
