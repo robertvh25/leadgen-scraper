@@ -351,12 +351,12 @@ const stmts = {
   completeCampaign: db.prepare(`UPDATE lead_campaigns SET status = 'completed', last_action_at = datetime('now') WHERE id = ?`),
   // Pending actions
   insertPendingAction: db.prepare(`INSERT INTO pending_actions (lead_id, campaign_id, step_id, type, template_id, rendered_subject, rendered_body, recipient, scheduled_for, auto_send, in_reply_to_message_id, intent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-  getPendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name, l.website AS lead_website, l.replacement_score FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.scheduled_for <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 50`),
-  getDuePendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.auto_send = 1 AND pa.scheduled_for <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 20`),
+  getPendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name, l.website AS lead_website, l.replacement_score FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND datetime(pa.scheduled_for) <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 50`),
+  getDuePendingActions: db.prepare(`SELECT pa.*, l.name AS lead_name FROM pending_actions pa LEFT JOIN leads l ON pa.lead_id = l.id WHERE pa.status = 'pending' AND pa.auto_send = 1 AND datetime(pa.scheduled_for) <= datetime('now') ORDER BY pa.scheduled_for ASC LIMIT 20`),
   getPendingAction: db.prepare(`SELECT * FROM pending_actions WHERE id = ?`),
   updatePendingActionStatus: db.prepare(`UPDATE pending_actions SET status = ? WHERE id = ?`),
   updatePendingActionBody: db.prepare(`UPDATE pending_actions SET rendered_subject = ?, rendered_body = ? WHERE id = ?`),
-  countPendingActions: db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending' AND scheduled_for <= datetime('now')`),
+  countPendingActions: db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending' AND datetime(scheduled_for) <= datetime('now')`),
   findLeadByEmail: db.prepare(`SELECT * FROM leads WHERE emails IS NOT NULL AND emails LIKE '%' || ? || '%' ORDER BY created_at DESC LIMIT 1`),
   // Communications
   insertCommunication: db.prepare(`INSERT INTO communications (lead_id, type, direction, subject, body, recipient, status, error, read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
