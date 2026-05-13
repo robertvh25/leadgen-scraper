@@ -1,7 +1,8 @@
 // scheduler.js - Auto-pilot scheduler die de queue afwerkt
+const path = require('path');
 const { scrapeGoogleMaps } = require('./scraper');
-const { analyzeWebsite } = require('./analyzer');
-const { takeScreenshot } = require('./lib/screenshot');
+const { analyzeWebsite, enrichWithVisual } = require('./analyzer');
+const { takeScreenshot, getScreenshotDir } = require('./lib/screenshot');
 const sequenceEngine = require('./lib/sequence-engine');
 const { sendEmail } = require('./lib/email-sender');
 const { render } = require('./lib/template-renderer');
@@ -73,10 +74,13 @@ async function runOneJob() {
       try {
         const analysis = await analyzeWebsite(lead.website);
 
-        // Screenshot proberen, niet kritiek als het mislukt
+        // Screenshot + visuele Claude-beoordeling, niet kritiek als 't mislukt
         try {
           const ssPath = await takeScreenshot(lead.website, lead.id);
-          if (ssPath) analysis.screenshot_path = ssPath;
+          if (ssPath) {
+            analysis.screenshot_path = ssPath;
+            await enrichWithVisual(analysis, path.join(getScreenshotDir(), path.basename(ssPath)));
+          }
         } catch (e) { /* skip */ }
 
         db.updateLeadAnalysis(lead.id, analysis);

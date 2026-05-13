@@ -160,6 +160,8 @@ addColumnIfMissing('leads', 'briefing_slug', 'TEXT');
 addColumnIfMissing('leads', 'dismissed', 'INTEGER DEFAULT 0');
 addColumnIfMissing('leads', 'loss_reason', 'TEXT');
 addColumnIfMissing('leads', 'lost_at', 'DATETIME');
+addColumnIfMissing('leads', 'visual_design_score', 'INTEGER');
+addColumnIfMissing('leads', 'visual_issues', 'TEXT');
 // Bestaande outbound communications hoeven niet "ongelezen" te staan
 try { db.exec(`UPDATE communications SET read = 1 WHERE direction = 'outbound' AND (read = 0 OR read IS NULL)`); } catch {}
 
@@ -355,8 +357,10 @@ const stmts = {
   createSearch: db.prepare(`INSERT INTO searches (query, location, auto) VALUES (?, ?, ?)`),
   updateSearchStatus: db.prepare(`UPDATE searches SET status = ?, total_results = ? WHERE id = ?`),
   insertLead: db.prepare(`INSERT OR IGNORE INTO leads (search_id, name, address, phone, website, google_maps_url, rating, review_count, category, branch_name, city_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-  updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ? WHERE id = ?`),
+  updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ?, visual_design_score = ?, visual_issues = ? WHERE id = ?`),
   updateLeadScreenshot: db.prepare(`UPDATE leads SET screenshot_path = ? WHERE id = ?`),
+  updateLeadVisualDesign: db.prepare(`UPDATE leads SET visual_design_score = ?, visual_issues = ?, replacement_score = ? WHERE id = ?`),
+  leadsForVisualBackfill: db.prepare(`SELECT id, name, screenshot_path, replacement_score, issues, has_https, is_mobile_friendly, has_cms, cms_type, has_viewport_meta, has_open_graph, pagespeed_score, copyright_year, tech_stack FROM leads WHERE screenshot_path IS NOT NULL AND screenshot_path != '' AND visual_design_score IS NULL LIMIT ?`),
   updateLeadEmails: db.prepare(`UPDATE leads SET emails = ? WHERE id = ?`),
   getLeadsWithoutEmail: db.prepare(`SELECT id, name, website FROM leads WHERE website IS NOT NULL AND website != '' AND (emails IS NULL OR emails = '[]' OR emails = '') AND (dismissed IS NULL OR dismissed = 0) ORDER BY replacement_score DESC NULLS LAST, created_at DESC LIMIT ?`),
   setLeadDismissed: db.prepare(`UPDATE leads SET dismissed = ? WHERE id = ?`),
@@ -495,9 +499,13 @@ module.exports = {
     a.pagespeed_score, a.copyright_year, a.last_modified,
     JSON.stringify(a.tech_stack || []), a.error || null,
     JSON.stringify(a.emails || []), a.screenshot_path || null,
+    a.visual_design_score ?? null,
+    a.visual_issues ? JSON.stringify(a.visual_issues) : null,
     id
   ),
   updateLeadScreenshot: (id, path) => stmts.updateLeadScreenshot.run(path, id),
+  updateLeadVisualDesign: (id, score, issues, replacementScore) => stmts.updateLeadVisualDesign.run(score, issues ? JSON.stringify(issues) : null, replacementScore, id),
+  leadsForVisualBackfill: (limit = 50) => stmts.leadsForVisualBackfill.all(limit),
   updateLeadEmails: (id, emails) => stmts.updateLeadEmails.run(JSON.stringify(emails || []), id),
   getLeadsWithoutEmail: (limit = 500) => stmts.getLeadsWithoutEmail.all(limit),
   setLeadBriefingSlug: (id, slug) => stmts.updateLeadBriefingSlug.run(slug, id),

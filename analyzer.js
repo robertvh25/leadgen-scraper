@@ -396,4 +396,38 @@ function calculateReplacementScore(r) {
   return Math.min(Math.round(score), 100);
 }
 
-module.exports = { analyzeWebsite, scrapeEmailsForUrl };
+// Weging visueel ouderwetse design. Score komt van Claude (0..100); user
+// vindt design heel belangrijk, dus zware weging — tot +40 punten op het
+// totaal. Tot 35 = ok modern, niets toevoegen.
+function visualBonusForScore(visualScore) {
+  if (typeof visualScore !== 'number' || !Number.isFinite(visualScore)) return 0;
+  if (visualScore >= 80) return 40;
+  if (visualScore >= 65) return 30;
+  if (visualScore >= 50) return 20;
+  if (visualScore >= 35) return 10;
+  return 0;
+}
+
+// Voegt het Claude-visual oordeel toe aan een al-uitgevoerde analyse en
+// herberekent replacement_score met de bonus. Mutates + returns analysis.
+async function enrichWithVisual(analysis, screenshotAbsPath) {
+  if (!screenshotAbsPath) return analysis;
+  let result;
+  try {
+    const va = require('./lib/visual-analyzer');
+    result = await va.analyzeVisualDesign(screenshotAbsPath);
+  } catch (e) {
+    return analysis;
+  }
+  if (!result) return analysis;
+  analysis.visual_design_score = result.score;
+  analysis.visual_issues = result.issues;
+  if (result.issues && result.issues.length > 0) {
+    analysis.issues = [...(analysis.issues || []), ...result.issues.map(i => `Design: ${i}`)];
+  }
+  const bonus = visualBonusForScore(result.score);
+  analysis.replacement_score = Math.min(100, (analysis.replacement_score || 0) + bonus);
+  return analysis;
+}
+
+module.exports = { analyzeWebsite, scrapeEmailsForUrl, enrichWithVisual, visualBonusForScore };

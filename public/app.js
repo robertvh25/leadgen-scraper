@@ -756,7 +756,46 @@ window.rescrapeEmails = async () => {
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('btnRescrapeEmails');
   if (btn) btn.addEventListener('click', () => window.rescrapeEmails());
+  const vb = document.getElementById('btnVisualBackfill');
+  if (vb) vb.addEventListener('click', () => window.visualBackfill());
 });
+
+window.visualBackfill = async () => {
+  const btn = document.getElementById('btnVisualBackfill');
+  const stat = document.getElementById('visualBackfillStatus');
+  if (!btn) return;
+  if (!confirm('Alle screenshots door Claude laten beoordelen op visueel design? Kost ~$0.004 per lead.')) return;
+  btn.disabled = true;
+  stat.textContent = 'Starten…';
+  try {
+    const res = await api('/api/admin/visual-backfill', { method: 'POST', body: { limit: 2000 } });
+    if (res.alreadyRunning) {
+      stat.textContent = 'Backfill loopt al — wachten…';
+    } else if (res.processed !== undefined && res.processed === 0) {
+      stat.textContent = res.message || 'Niets te scoren';
+      btn.disabled = false;
+      return;
+    } else {
+      stat.textContent = `Bezig: 0 / ${res.totalQueued || '?'} verwerkt`;
+    }
+    const poll = setInterval(async () => {
+      try {
+        const s = await api('/api/admin/visual-backfill/status');
+        const total = s.totalQueued || 0;
+        stat.textContent = `Bezig: ${s.processed} / ${total} — ${s.scored} gescoord, ${s.failed} mislukt`;
+        if (!s.running) {
+          clearInterval(poll);
+          stat.textContent = `✓ Klaar: ${s.scored} gescoord (${s.failed} mislukt) van ${s.processed} totaal`;
+          btn.disabled = false;
+          loadDashboard();
+        }
+      } catch (_) { clearInterval(poll); btn.disabled = false; }
+    }, 4000);
+  } catch (e) {
+    stat.textContent = 'Fout: ' + e.message;
+    btn.disabled = false;
+  }
+};
 
 window.regenerateScreenshots = async () => {
   if (!confirm('Voor alle leads zonder screenshot een nieuwe genereren? Dit kan even duren.')) return;

@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const { scrapeGoogleMaps } = require('./scraper');
-const { analyzeWebsite, scrapeEmailsForUrl } = require('./analyzer');
+const { analyzeWebsite, scrapeEmailsForUrl, enrichWithVisual } = require('./analyzer');
 const { takeScreenshot, getScreenshotDir } = require('./lib/screenshot');
 const { render, listAvailableVars } = require('./lib/template-renderer');
 const { sendEmail } = require('./lib/email-sender');
@@ -329,7 +329,11 @@ app.post('/api/leads/:id/analyze', async (req, res) => {
     const analysis = await analyzeWebsite(lead.website);
     try {
       const ssPath = await takeScreenshot(lead.website, lead.id);
-      if (ssPath) analysis.screenshot_path = ssPath;
+      if (ssPath) {
+        analysis.screenshot_path = ssPath;
+        const absPath = path.join(getScreenshotDir(), path.basename(ssPath));
+        await enrichWithVisual(analysis, absPath);
+      }
     } catch (e) {}
     db.updateLeadAnalysis(lead.id, analysis);
     res.json({ ok: true });
@@ -498,6 +502,60 @@ app.post('/api/admin/rescrape-emails', async (req, res) => {
 
 app.get('/api/admin/rescrape-emails/status', (_, res) => {
   res.json(rescrapeStats);
+});
+
+// Visuele-design backfill: stuurt bestaande screenshots naar Claude en
+// scoort design-modernity. Async background-job; gebruikt visual_design_score
+// IS NULL als selectie zodat herhalen veilig is. Spacing 1s per call om de
+// Anthropic rate-limit en kosten te respecteren.
+let visualBackfillInProgress = false;
+let visualBackfillStats = { running: false, processed: 0, scored: 0, failed: 0, totalQueued: 0, lastError: null, startedAt: null };
+app.post('/api/admin/visual-backfill', async (req, res) => {
+  if (visualBackfillInProgress) return res.json({ ok: true, alreadyRunning: true, stats: visualBackfillStats });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'ANTHROPIC_API_KEY niet ingesteld' });
+  const limit = Math.min(parseInt(req.body?.limit || '500'), 2000);
+  const leads = db.leadsForVisualBackfill(limit);
+  if (leads.length === 0) return res.json({ ok: true, processed: 0, message: 'Alle leads met screenshot zijn al gescoord op visueel design' });
+
+  const { analyzeVisualDesign } = require('./lib/visual-analyzer');
+  const { visualBonusForScore } = require('./analyzer');
+
+  visualBackfillInProgress = true;
+  visualBackfillStats = { running: true, processed: 0, scored: 0, failed: 0, totalQueued: leads.length, lastError: null, startedAt: new Date().toISOString() };
+  res.json({ ok: true, started: true, totalQueued: leads.length, message: `Visual-backfill gestart voor ${leads.length} leads — check status via /api/admin/visual-backfill/status` });
+
+  (async () => {
+    const screenshotDir = getScreenshotDir();
+    try {
+      for (const lead of leads) {
+        try {
+          const absPath = path.join(screenshotDir, path.basename(lead.screenshot_path));
+          const r = await analyzeVisualDesign(absPath);
+          if (r) {
+            const bonus = visualBonusForScore(r.score);
+            // Baseline = oude replacement_score. Bonus wordt opgeteld; clamp 0..100.
+            const newScore = Math.min(100, (lead.replacement_score || 0) + bonus);
+            db.updateLeadVisualDesign(lead.id, r.score, r.issues, newScore);
+            visualBackfillStats.scored++;
+          } else {
+            visualBackfillStats.failed++;
+          }
+        } catch (e) {
+          visualBackfillStats.failed++;
+          visualBackfillStats.lastError = `lead ${lead.id}: ${e.message}`;
+        }
+        visualBackfillStats.processed++;
+        await new Promise(r => setTimeout(r, 1000)); // 1s per call
+      }
+    } finally {
+      visualBackfillStats.running = false;
+      visualBackfillInProgress = false;
+    }
+  })();
+});
+
+app.get('/api/admin/visual-backfill/status', (_, res) => {
+  res.json(visualBackfillStats);
 });
 
 app.post('/api/admin/respace-pending', (req, res) => {
@@ -1314,7 +1372,13 @@ app.post('/api/search', async (req, res) => {
         for (const lead of leads) {
           try {
             const analysis = await analyzeWebsite(lead.website);
-            try { const ssPath = await takeScreenshot(lead.website, lead.id); if (ssPath) analysis.screenshot_path = ssPath; } catch {}
+            try {
+              const ssPath = await takeScreenshot(lead.website, lead.id);
+              if (ssPath) {
+                analysis.screenshot_path = ssPath;
+                await enrichWithVisual(analysis, path.join(getScreenshotDir(), path.basename(ssPath)));
+              }
+            } catch {}
             db.updateLeadAnalysis(lead.id, analysis);
           } catch (err) {
             db.updateLeadAnalysis(lead.id, { replacement_score: null, issues: [], error: err.message });
