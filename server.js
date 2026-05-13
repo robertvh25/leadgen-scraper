@@ -441,6 +441,19 @@ app.post('/api/leads/:id/create-briefing', async (req, res) => {
   });
 });
 
+app.get('/api/admin/pending-diag', (req, res) => {
+  // Diagnose hulp: laat zien wat in pending_actions staat
+  const total = db.db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending'`).get().c;
+  const due = db.db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending' AND scheduled_for <= datetime('now')`).get().c;
+  const auto_due = db.db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'pending' AND auto_send = 1 AND scheduled_for <= datetime('now')`).get().c;
+  const sample = db.db.prepare(`SELECT id, type, auto_send, scheduled_for, recipient FROM pending_actions WHERE status = 'pending' ORDER BY scheduled_for ASC LIMIT 5`).all();
+  const sent = db.db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'sent'`).get().c;
+  const failed = db.db.prepare(`SELECT COUNT(*) AS c FROM pending_actions WHERE status = 'failed'`).get().c;
+  const now_utc = new Date().toISOString();
+  const sqlite_now = db.db.prepare(`SELECT datetime('now') AS n`).get().n;
+  res.json({ total_pending: total, due_now: due, auto_due_now: auto_due, sent, failed, server_now_iso: now_utc, sqlite_now, sample });
+});
+
 app.post('/api/admin/respace-pending', (req, res) => {
   // Herverdeel alle pending email-actions met spacing van 15 sec vanaf nextSendableTime.
   // Niet voor email_reply (die handmatig).
