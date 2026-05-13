@@ -598,6 +598,64 @@ app.post('/api/admin/funnel-cleanup', (req, res) => {
   });
 });
 
+// Revert recente bulk-funnel actie: trekt alle leads waarvan de pending-mail
+// in de laatste N minuten is aangemaakt terug naar stage='new' en cancelt
+// hun pending-mail. Voor "shit, ik klikte op de verkeerde knop"-momenten.
+// Dry-run by default, ?apply=1 om uit te voeren. ?minutes=30 default.
+app.post('/api/admin/funnel-revert-recent', (req, res) => {
+  const minutes = parseInt(req.query.minutes || req.body?.minutes || '30');
+  const apply = req.query.apply === '1' || req.body?.apply === true;
+
+  const recent = db.db.prepare(`
+    SELECT pa.id AS pending_id, pa.lead_id, pa.created_at, pa.scheduled_for,
+           l.name, l.stage, l.replacement_score
+    FROM pending_actions pa
+    JOIN leads l ON l.id = pa.lead_id
+    WHERE pa.status = 'pending'
+      AND pa.type = 'email'
+      AND pa.created_at >= datetime('now', '-' || ? || ' minutes')
+    ORDER BY pa.created_at ASC
+  `).all(minutes);
+
+  const leadIds = [...new Set(recent.map(r => r.lead_id))];
+
+  if (!apply) {
+    return res.json({
+      dry: true,
+      minutes,
+      pending_to_cancel: recent.length,
+      unique_leads: leadIds.length,
+      sample: recent.slice(0, 20),
+      message: recent.length === 0
+        ? `Geen pending mails aangemaakt in laatste ${minutes} min.`
+        : `Preview: zou ${recent.length} pending mails cancellen en ${leadIds.length} leads (stage='contacted') terugzetten naar 'new'. Voeg ?apply=1 toe.`,
+    });
+  }
+
+  const tx = db.db.transaction(() => {
+    let cancelledActions = 0;
+    let revertedLeads = 0;
+    for (const r of recent) {
+      const r1 = db.db.prepare(`UPDATE pending_actions SET status = 'cancelled' WHERE id = ? AND status = 'pending'`).run(r.pending_id);
+      cancelledActions += r1.changes;
+    }
+    for (const id of leadIds) {
+      const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE id = ? AND stage = 'contacted'`).run(id);
+      revertedLeads += r2.changes;
+    }
+    return { cancelledActions, revertedLeads };
+  });
+  const result = tx();
+
+  res.json({
+    dry: false,
+    minutes,
+    cancelled_actions: result.cancelledActions,
+    reverted_leads: result.revertedLeads,
+    message: `${result.cancelledActions} mails gecancelled, ${result.revertedLeads} leads terug naar 'new'.`,
+  });
+});
+
 app.post('/api/leads/bulk-funnel', async (req, res) => {
   // Manueel bulk: respecteert high_score_threshold (default 40) wanneer geen
   // body.ids meegegeven — matcht de "Hoge score leads"-view die de UI toont.

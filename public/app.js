@@ -619,9 +619,30 @@ window.saveLeadNotes = async (id) => {
   toast('✓ Opgeslagen');
 };
 window.bulkFunnelHighScore = async () => {
-  if (!confirm('Alle nieuwe leads met score boven de drempel + email direct in funnel zetten en mailen?\n\nDit kan niet ongedaan worden gemaakt — emails worden verzonden.')) return;
+  // Pak alleen de leads die nu echt zichtbaar zijn in de view (score-chip +
+  // branch/city/text filters). Voorheen ging dit zonder ids naar de server,
+  // die viel terug op high_score_threshold uit settings → matchte de hele DB
+  // i.p.v. de view (bv. chip ≥80 toonde 4, server queue'de er 111).
+  let visible = state.leads || [];
+  if (state.filterText) {
+    const q = state.filterText.toLowerCase();
+    visible = visible.filter(l =>
+      (l.name || '').toLowerCase().includes(q) ||
+      (l.address || '').toLowerCase().includes(q) ||
+      (l.issues || []).join(' ').toLowerCase().includes(q)
+    );
+  }
+  const mailable = visible.filter(l =>
+    (!l.stage || l.stage === 'new') &&
+    Array.isArray(l.emails) && l.emails.length > 0
+  );
+  if (mailable.length === 0) {
+    toast('Geen mailbare leads in huidige view', 'error');
+    return;
+  }
+  if (!confirm(`${mailable.length} zichtbare lead(s) direct in funnel zetten en eerste mail inplannen?\n\nDit kan niet ongedaan worden gemaakt — mails worden verzonden.`)) return;
   try {
-    const res = await api('/api/leads/bulk-funnel', { method: 'POST' });
+    const res = await api('/api/leads/bulk-funnel', { method: 'POST', body: { ids: mailable.map(l => l.id) } });
     toast(res.message || `Batch gestart voor ${res.queued} leads`);
     setTimeout(() => { loadLeads(); loadDashboard(); }, 4000);
   } catch (e) { toast('Fout: ' + e.message, 'error'); }
