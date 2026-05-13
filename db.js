@@ -178,6 +178,12 @@ try {
   }
 } catch (e) { console.error('Migration v4.27 error:', e.message); }
 
+// Migration v4.37: eerste sequence-stap altijd auto-send (eerste mail zonder approval)
+try {
+  const r = db.exec(`UPDATE pending_actions SET auto_send = 1 WHERE status = 'pending' AND type = 'email' AND auto_send = 0 AND step_id IN (SELECT id FROM sequence_steps WHERE step_order = 1)`);
+  console.log('✓ Migration v4.37: pending eerste-stap email-actions naar auto_send=1');
+} catch (e) { console.error('Migration v4.37 error:', e.message); }
+
 function seedDefaults() {
   if (db.prepare(`SELECT COUNT(*) AS c FROM branches`).get().c === 0) {
     const items = ['kozijnbedrijf', 'kunststof kozijnen', 'aluminium kozijnen', 'houten kozijnen', 'dakkapel installateur', 'zonwering bedrijf', 'rolluiken bedrijf', 'gevelbekleding bedrijf', 'serrebouwer', 'glaszetter', 'horren specialist', 'schuifpui leverancier'];
