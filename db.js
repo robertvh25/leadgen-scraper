@@ -194,6 +194,26 @@ try {
   if (total > 0) console.log(`✓ Migration v4.40: ${total} queue-entries voor disabled branches/cities verwijderd`);
 } catch (e) { console.error('Migration v4.40 error:', e.message); }
 
+// Migration v4.44: seed "voip pbx" als interne roadmap-project (1x)
+try {
+  const exists = db.prepare(`SELECT id FROM projects WHERE name = ?`).get('voip pbx');
+  if (!exists) {
+    db.prepare(`INSERT INTO projects (lead_id, name, status, notes) VALUES (?, ?, ?, ?)`).run(
+      null, 'voip pbx', 'planning',
+      `Self-hosted PBX-as-a-service voor klanten. Klant koppelt VoIP-nummer en routeert naar:
+- gebruiker (extensie)
+- wachtrij (queue)
+- keuzemenu (IVR)
+
+Stack: FreePBX in Docker (tiredofit/freepbx). Repo: ~/Projects/voip-pbx.
+Volgende stap: subdomain pbx.aitomade.nl + Hetzner firewall openen (UDP 5060, 10000-20000) + Coolify-app aanmaken.
+
+Toekomstig migratiepad voor multi-tenant: FusionPBX.`
+    );
+    console.log('✓ Migration v4.44: voip pbx project toegevoegd');
+  }
+} catch (e) { console.error('Migration v4.44 error:', e.message); }
+
 function seedDefaults() {
   if (db.prepare(`SELECT COUNT(*) AS c FROM branches`).get().c === 0) {
     const items = ['kozijnbedrijf', 'kunststof kozijnen', 'aluminium kozijnen', 'houten kozijnen', 'dakkapel installateur', 'zonwering bedrijf', 'rolluiken bedrijf', 'gevelbekleding bedrijf', 'serrebouwer', 'glaszetter', 'horren specialist', 'schuifpui leverancier'];
