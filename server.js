@@ -192,8 +192,13 @@ app.use('/api', (req, res, next) => {
 
 // === DASHBOARD ===
 app.get('/api/dashboard', (req, res) => {
+  const threshold = parseInt(db.getSetting('high_score_threshold') || '40');
+  const stats = db.getDashboardStats();
+  try {
+    stats.high_score_leads = db.db.prepare(`SELECT COUNT(*) AS c FROM leads WHERE replacement_score >= ? AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).get(threshold).c;
+  } catch {}
   res.json({
-    stats: db.getDashboardStats(),
+    stats,
     queue: db.getQueueStats(),
     scheduler: scheduler.getStatus(),
     settings: db.getAllSettings(),
@@ -433,8 +438,16 @@ app.post('/api/leads/:id/create-briefing', async (req, res) => {
 });
 
 app.post('/api/leads/bulk-funnel', async (req, res) => {
-  const threshold = parseInt(db.getSetting('high_score_threshold') || '60');
-  const candidates = db.db.prepare(`SELECT id, name FROM leads WHERE stage = 'new' AND replacement_score >= ? AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(threshold);
+  // Manueel bulk-versturen: GEEN score-filter (Robert beslist bewust welke).
+  // Optioneel filter via body.ids = [list] om specifiek subset te pakken.
+  let candidates;
+  if (Array.isArray(req.body?.ids) && req.body.ids.length > 0) {
+    const ids = req.body.ids.map(Number).filter(Boolean);
+    const placeholders = ids.map(() => '?').join(',');
+    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE id IN (${placeholders}) AND stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all(...ids);
+  } else {
+    candidates = db.db.prepare(`SELECT id, name FROM leads WHERE stage = 'new' AND emails IS NOT NULL AND emails != '[]' AND emails != ''`).all();
+  }
   const templates = db.getTemplates();
   const tmpl = templates.find(t => t.name === 'Eerste contact - website verouderd')
     || templates.find(t => /eerste\s*contact/i.test(t.name) && t.type === 'email');
