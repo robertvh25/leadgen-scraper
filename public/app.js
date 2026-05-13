@@ -230,6 +230,20 @@ function updateSendPauseUI(settings, pendingCount) {
   }
 }
 
+window.fixOrphanStages = async () => {
+  try {
+    const preview = await api('/api/admin/fix-orphan-stages', { method: 'POST' });
+    if (!preview.orphans) {
+      toast('Geen orphans — alle stages kloppen.');
+      return;
+    }
+    if (!confirm(`${preview.orphans} lead(s) staan op 'new' maar hebben wel een mail ontvangen. Terug naar 'contacted' zetten?\n\nDit ontstaat als een lead per ongeluk uit funnel is gehaald terwijl er al een mail uit was.`)) return;
+    const res = await api('/api/admin/fix-orphan-stages?apply=1', { method: 'POST' });
+    toast(res.message || `${res.fixed} leads gerepareerd`);
+    loadDashboard();
+  } catch (e) { toast('Fout: ' + e.message, 'error'); }
+};
+
 window.cancelRecentBatch = async () => {
   const minutes = parseInt(prompt('Cancel pending mails aangemaakt in de laatste hoeveel minuten?', '30')) || 30;
   if (minutes <= 0) return;

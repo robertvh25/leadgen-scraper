@@ -598,9 +598,11 @@ app.post('/api/admin/funnel-cleanup', (req, res) => {
   });
 });
 
-// Revert recente bulk-funnel actie: trekt alle leads waarvan de pending-mail
-// in de laatste N minuten is aangemaakt terug naar stage='new' en cancelt
-// hun pending-mail. Voor "shit, ik klikte op de verkeerde knop"-momenten.
+// Revert recente bulk-funnel actie: cancelt pending mails uit laatste N min
+// EN zet hun leads terug naar 'new' — MAAR alleen leads die nog géén
+// outbound mail succesvol verstuurd hebben (anders krijgen we orphan-state:
+// lead lijkt 'new' terwijl er wel een mail uit is). Voor leads met sent
+// communications cancelen we alleen hun pending follow-ups; stage blijft.
 // Dry-run by default, ?apply=1 om uit te voeren. ?minutes=30 default.
 app.post('/api/admin/funnel-revert-recent', (req, res) => {
   const minutes = parseInt(req.query.minutes || req.body?.minutes || '30');
@@ -618,6 +620,16 @@ app.post('/api/admin/funnel-revert-recent', (req, res) => {
   `).all(minutes);
 
   const leadIds = [...new Set(recent.map(r => r.lead_id))];
+  // Welke van die leads heeft al een succesvol verzonden outbound mail?
+  // Die mogen NIET terug naar 'new' — alleen pending cancelen.
+  let sentLeadIds = new Set();
+  if (leadIds.length > 0) {
+    const placeholders = leadIds.map(() => '?').join(',');
+    const rows = db.db.prepare(`SELECT DISTINCT lead_id FROM communications WHERE lead_id IN (${placeholders}) AND direction = 'outbound' AND status = 'sent'`).all(...leadIds);
+    sentLeadIds = new Set(rows.map(r => r.lead_id));
+  }
+  const revertable = leadIds.filter(id => !sentLeadIds.has(id));
+  const keptStageCount = leadIds.length - revertable.length;
 
   if (!apply) {
     return res.json({
@@ -625,10 +637,12 @@ app.post('/api/admin/funnel-revert-recent', (req, res) => {
       minutes,
       pending_to_cancel: recent.length,
       unique_leads: leadIds.length,
+      revertable_to_new: revertable.length,
+      kept_stage_because_already_sent: keptStageCount,
       sample: recent.slice(0, 20),
       message: recent.length === 0
         ? `Geen pending mails aangemaakt in laatste ${minutes} min.`
-        : `Preview: zou ${recent.length} pending mails cancellen en ${leadIds.length} leads (stage='contacted') terugzetten naar 'new'. Voeg ?apply=1 toe.`,
+        : `Preview: ${recent.length} pending mails cancellen, ${revertable.length} leads terug naar 'new'. ${keptStageCount} leads houden stage (mail al succesvol verstuurd). Voeg ?apply=1 toe.`,
     });
   }
 
@@ -639,7 +653,7 @@ app.post('/api/admin/funnel-revert-recent', (req, res) => {
       const r1 = db.db.prepare(`UPDATE pending_actions SET status = 'cancelled' WHERE id = ? AND status = 'pending'`).run(r.pending_id);
       cancelledActions += r1.changes;
     }
-    for (const id of leadIds) {
+    for (const id of revertable) {
       const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE id = ? AND stage = 'contacted'`).run(id);
       revertedLeads += r2.changes;
     }
@@ -652,8 +666,48 @@ app.post('/api/admin/funnel-revert-recent', (req, res) => {
     minutes,
     cancelled_actions: result.cancelledActions,
     reverted_leads: result.revertedLeads,
-    message: `${result.cancelledActions} mails gecancelled, ${result.revertedLeads} leads terug naar 'new'.`,
+    kept_stage_because_already_sent: keptStageCount,
+    message: `${result.cancelledActions} mails gecancelled, ${result.revertedLeads} leads terug naar 'new'. ${keptStageCount} leads houden stage (mail al verstuurd).`,
   });
+});
+
+// Repair-endpoint: vindt leads die in 'new' staan maar wel een succesvol
+// verstuurde outbound mail hebben (orphan-state veroorzaakt door eerdere
+// revert-bugs). Zet ze terug naar 'contacted'.
+// Dry-run by default, ?apply=1 om uit te voeren.
+app.post('/api/admin/fix-orphan-stages', (req, res) => {
+  const apply = req.query.apply === '1' || req.body?.apply === true;
+
+  const orphans = db.db.prepare(`
+    SELECT l.id, l.name, l.replacement_score, MAX(c.sent_at) AS last_sent_at
+    FROM leads l
+    JOIN communications c ON c.lead_id = l.id
+    WHERE l.stage = 'new'
+      AND c.direction = 'outbound'
+      AND c.status = 'sent'
+    GROUP BY l.id
+    ORDER BY last_sent_at DESC
+  `).all();
+
+  if (!apply) {
+    return res.json({
+      dry: true,
+      orphans: orphans.length,
+      sample: orphans.slice(0, 20),
+      message: orphans.length === 0
+        ? `Geen orphans gevonden — alle stages kloppen met communications.`
+        : `Preview: ${orphans.length} leads staan op 'new' maar hebben wel mail gestuurd. ?apply=1 om naar 'contacted' te zetten.`,
+    });
+  }
+
+  const stmt = db.db.prepare(`UPDATE leads SET stage = 'contacted' WHERE id = ? AND stage = 'new'`);
+  const tx = db.db.transaction(() => {
+    let fixed = 0;
+    for (const o of orphans) fixed += stmt.run(o.id).changes;
+    return fixed;
+  });
+  const fixed = tx();
+  res.json({ dry: false, fixed, message: `${fixed} orphan-leads teruggezet naar 'contacted'.` });
 });
 
 // Re-render pending mails met de huidige template-content. Voor wanneer je
@@ -746,9 +800,11 @@ app.post('/api/admin/funnel-rerender-pending', (req, res) => {
   });
 });
 
-// Bulk-remove uit funnel: zet de opgegeven leads terug naar stage='new' en
-// cancelt hun pending mails. Accepteert óf body.ids (lijst) óf body.stage
-// (alle leads in die stage). Geen dry-run — UI doet de confirm.
+// Bulk-remove uit funnel: cancelt pending mails én zet leads terug naar 'new'.
+// Accepteert óf body.ids (lijst) óf body.stage (alle leads in die stage).
+// Geen dry-run — UI doet de confirm. Leads waarvan al een outbound mail
+// succesvol verstuurd is houden hun stage (anders orphan-state); hun pending
+// follow-ups worden wel gecanceld. Met body.force=true overrule je dat.
 app.post('/api/leads/bulk-remove-from-funnel', (req, res) => {
   let ids = [];
   if (Array.isArray(req.body?.ids) && req.body.ids.length > 0) {
@@ -760,20 +816,37 @@ app.post('/api/leads/bulk-remove-from-funnel', (req, res) => {
   } else {
     return res.status(400).json({ error: 'Geef body.ids (lijst) of body.stage op' });
   }
-  if (ids.length === 0) return res.json({ ok: true, reverted_leads: 0, cancelled_actions: 0, message: 'Geen leads om te verwerken.' });
+  if (ids.length === 0) return res.json({ ok: true, reverted_leads: 0, cancelled_actions: 0, kept_stage_because_already_sent: 0, message: 'Geen leads om te verwerken.' });
 
+  const force = req.body?.force === true;
   const placeholders = ids.map(() => '?').join(',');
+  let sentLeadIds = new Set();
+  if (!force) {
+    const rows = db.db.prepare(`SELECT DISTINCT lead_id FROM communications WHERE lead_id IN (${placeholders}) AND direction = 'outbound' AND status = 'sent'`).all(...ids);
+    sentLeadIds = new Set(rows.map(r => r.lead_id));
+  }
+  const revertable = ids.filter(id => !sentLeadIds.has(id));
+  const keptStageCount = ids.length - revertable.length;
+
   const tx = db.db.transaction(() => {
     const r1 = db.db.prepare(`UPDATE pending_actions SET status = 'cancelled' WHERE status = 'pending' AND lead_id IN (${placeholders})`).run(...ids);
-    const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE stage NOT IN ('new', 'lost') AND id IN (${placeholders})`).run(...ids);
-    return { cancelledActions: r1.changes, revertedLeads: r2.changes };
+    let revertedLeads = 0;
+    if (revertable.length > 0) {
+      const ph2 = revertable.map(() => '?').join(',');
+      const r2 = db.db.prepare(`UPDATE leads SET stage = 'new' WHERE stage NOT IN ('new', 'lost') AND id IN (${ph2})`).run(...revertable);
+      revertedLeads = r2.changes;
+    }
+    return { cancelledActions: r1.changes, revertedLeads };
   });
   const result = tx();
   res.json({
     ok: true,
     reverted_leads: result.revertedLeads,
     cancelled_actions: result.cancelledActions,
-    message: `${result.revertedLeads} leads terug naar 'new', ${result.cancelledActions} pending mails gecancelled.`,
+    kept_stage_because_already_sent: keptStageCount,
+    message: keptStageCount > 0
+      ? `${result.revertedLeads} leads terug naar 'new', ${result.cancelledActions} pending mails gecancelled. ${keptStageCount} lead(s) houden stage (mail al verstuurd).`
+      : `${result.revertedLeads} leads terug naar 'new', ${result.cancelledActions} pending mails gecancelled.`,
   });
 });
 
