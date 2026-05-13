@@ -18,7 +18,7 @@ const state = {
   view: 'dashboard',
   leads: [],
   allLeads: [],
-  filter: '50',  // default ≥ 50
+  filter: '40',  // default ≥ 40 (= threshold)
   filterText: '',
   filterBranch: '',
   filterCity: '',
@@ -256,12 +256,13 @@ async function loadLeads() {
   if (state.filterBranch) params.set('branch', state.filterBranch);
   if (state.filterCity) params.set('city', state.filterCity);
 
-  // Score filter: default 50, of wat user kiest
-  if (state.filter === '50') params.set('minScore', '50');
+  // Score filter: default 40, of wat user kiest
+  if (state.filter === '40') params.set('minScore', '40');
+  else if (state.filter === '50') params.set('minScore', '50');
   else if (state.filter === '60') params.set('minScore', '60');
   else if (state.filter === '80') params.set('minScore', '80');
   else if (state.filter === 'uncontacted') {
-    params.set('minScore', '50');
+    params.set('minScore', '40');
     params.set('contacted', 'false');
   }
 
@@ -315,10 +316,11 @@ $('#exportBtn').addEventListener('click', () => {
   const params = new URLSearchParams();
   if (state.filterBranch) params.set('branch', state.filterBranch);
   if (state.filterCity) params.set('city', state.filterCity);
+  if (state.filter === '40') params.set('minScore', '40');
   if (state.filter === '50') params.set('minScore', '50');
   if (state.filter === '60') params.set('minScore', '60');
   if (state.filter === '80') params.set('minScore', '80');
-  if (state.filter === 'uncontacted') { params.set('minScore', '50'); params.set('contacted', 'false'); }
+  if (state.filter === 'uncontacted') { params.set('minScore', '40'); params.set('contacted', 'false'); }
   window.location = `/api/export.csv?${params}`;
 });
 
