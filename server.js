@@ -271,7 +271,7 @@ app.patch('/api/leads/:id', async (req, res) => {
   let triggered = null;
   if (typeof req.body.stage === 'string') {
     const newStage = req.body.stage;
-    const valid = ['new', 'contacted', 'engaged', 'meeting_planned', 'briefing_sent', 'project', 'lost'];
+    const valid = ['new', 'contacted', 'engaged', 'mockup_creating', 'mockup_sent', 'meeting_planned', 'offerte', 'project', 'lost'];
     if (!valid.includes(newStage)) return res.status(400).json({ error: 'Ongeldige stage' });
     const stageChanged = newStage !== lead.stage;
     if (newStage === 'lost') {
@@ -1247,7 +1247,7 @@ async function executePendingAction(id) {
         if (action.intent === 'meeting') db.advanceLeadStage(action.lead_id, 'meeting_planned');
         else if (action.intent === 'no_interest') db.advanceLeadStage(action.lead_id, 'lost');
       } else if (action.type === 'email' && action.intent === 'direct_start') {
-        db.advanceLeadStage(action.lead_id, 'briefing_sent');
+        db.advanceLeadStage(action.lead_id, 'mockup_creating');
       }
     }
     return { ok: true };

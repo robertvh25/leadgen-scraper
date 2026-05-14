@@ -166,11 +166,24 @@ addColumnIfMissing('leads', 'visual_issues', 'TEXT');
 try { db.exec(`UPDATE communications SET read = 1 WHERE direction = 'outbound' AND (read = 0 OR read IS NULL)`); } catch {}
 
 const STAGE_ORDER = {
-  new: 0, contacted: 1, engaged: 2, meeting_planned: 3, briefing_sent: 4, project: 5,
+  new: 0, contacted: 1, engaged: 2, mockup_creating: 3, mockup_sent: 4,
+  meeting_planned: 5, offerte: 6, project: 7,
 };
 
 // Set default stage for any lead without one (existing leads)
 db.exec(`UPDATE leads SET stage = 'new' WHERE stage IS NULL OR stage = ''`);
+
+// Migration v4.56: funnel-fases uitgebreid (mockup maken / verstuurd / offerte).
+// Bestaande 'briefing_sent'-leads → 'mockup_creating' (briefing verstuurd = mockup-fase begint).
+try {
+  const flag = db.prepare(`SELECT value FROM settings WHERE key = ?`).get('migration_v4_56_briefing_sent_to_mockup');
+  if (!flag) {
+    db.exec(`UPDATE leads SET stage = 'mockup_creating' WHERE stage = 'briefing_sent'`);
+    db.exec(`UPDATE sequences SET trigger_stage = 'mockup_creating' WHERE trigger_stage = 'briefing_sent'`);
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`).run('migration_v4_56_briefing_sent_to_mockup', '1');
+    console.log("✓ Migration v4.56: 'briefing_sent'-leads naar 'mockup_creating' gezet");
+  }
+} catch (e) { console.error('Migration v4.56 error:', e.message); }
 
 // One-time migration v4.27: leads met pending email-action moeten stage 'contacted' hebben
 try {
@@ -188,13 +201,13 @@ try {
   console.log('✓ Migration v4.37: pending eerste-stap email-actions naar auto_send=1');
 } catch (e) { console.error('Migration v4.37 error:', e.message); }
 
-// Migration v4.40: ruim queue-entries op voor disabled branches/cities
+// Migration v4.55: ruim queue-entries op voor disabled branches/cities
 try {
   const r1 = db.prepare(`DELETE FROM queue WHERE city_name IN (SELECT name FROM cities WHERE enabled = 0)`).run();
   const r2 = db.prepare(`DELETE FROM queue WHERE branch_name IN (SELECT name FROM branches WHERE enabled = 0)`).run();
   const total = (r1.changes || 0) + (r2.changes || 0);
-  if (total > 0) console.log(`✓ Migration v4.40: ${total} queue-entries voor disabled branches/cities verwijderd`);
-} catch (e) { console.error('Migration v4.40 error:', e.message); }
+  if (total > 0) console.log(`✓ Migration v4.55: ${total} queue-entries voor disabled branches/cities verwijderd`);
+} catch (e) { console.error('Migration v4.55 error:', e.message); }
 
 // Migration v4.44: seed "voip pbx" als interne roadmap-project (1x)
 try {

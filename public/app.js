@@ -6,8 +6,10 @@ const STAGES = [
   { id: 'new', label: 'Nieuw', color: 'var(--text-faint)' },
   { id: 'contacted', label: 'Benaderd', color: 'var(--info)' },
   { id: 'engaged', label: 'In gesprek', color: 'var(--warn)' },
+  { id: 'mockup_creating', label: 'Mockup maken', color: 'var(--purple)' },
+  { id: 'mockup_sent', label: 'Mockup verstuurd', color: 'var(--accent)' },
   { id: 'meeting_planned', label: 'Meeting gepland', color: 'var(--info)' },
-  { id: 'briefing_sent', label: 'Briefing verstuurd', color: 'var(--accent)' },
+  { id: 'offerte', label: 'Offerte', color: 'var(--cta)' },
   { id: 'project', label: 'Project', color: 'var(--success)' },
   { id: 'lost', label: 'Verloren', color: 'var(--danger)' },
 ];
@@ -524,11 +526,11 @@ async function openLeadDetail(id) {
       <div class="detail-actions">
         ${emails.length > 0 && (!lead.stage || lead.stage === 'new') ? `<button onclick="startLeadFunnel(${lead.id})" style="background:var(--accent);color:#fff;">→ Start funnel (eerste mail uit)</button>` : ''}
         ${emails.length > 0 ? `<button class="${(!lead.stage || lead.stage === 'new') ? 'secondary' : ''}" onclick="openSendDialog(${lead.id}, 'email')">📧 Email versturen</button>` : `<button disabled title="Geen email">📧 Email versturen</button>`}
-        ${emails.length > 0 && ['engaged', 'meeting_planned', 'briefing_sent'].includes(lead.stage) ? `<button class="secondary" onclick="createBriefingForLead(${lead.id})">${lead.stage === 'briefing_sent' ? '🔄 Opnieuw versturen briefing' : '📋 Briefing-link maken'}</button>` : ''}
+        ${emails.length > 0 && ['engaged', 'mockup_creating', 'mockup_sent', 'meeting_planned'].includes(lead.stage) ? `<button class="secondary" onclick="createBriefingForLead(${lead.id})">📋 Briefing-link maken</button>` : ''}
         ${phone ? `<button class="secondary" onclick="openSendDialog(${lead.id}, 'whatsapp')">💬 WhatsApp</button>` : ''}
         ${phone ? `<a href="tel:${escapeHtml(phone)}" style="text-decoration:none;"><button class="secondary">📞 Bel</button></a>` : ''}
         <button class="secondary" onclick="moveLeadToStage(${lead.id})">→ Naar funnel</button>
-        ${['contacted','engaged','meeting_planned','briefing_sent'].includes(lead.stage) ? `<button class="ghost" onclick="markLeadLost(${lead.id})" style="color:var(--danger);">✗ Markeer als verloren</button>` : ''}
+        ${['contacted','engaged','mockup_creating','mockup_sent','meeting_planned','offerte'].includes(lead.stage) ? `<button class="ghost" onclick="markLeadLost(${lead.id})" style="color:var(--danger);">✗ Markeer als verloren</button>` : ''}
         ${lead.website ? `<button class="ghost" onclick="window.open('${escapeHtml(lead.website)}','_blank')">↗ Open website</button>` : ''}
         ${lead.google_maps_url ? `<button class="ghost" onclick="window.open('${escapeHtml(lead.google_maps_url)}','_blank')">↗ Google Maps</button>` : ''}
         <button class="ghost" onclick="reanalyzeLead(${lead.id})">↻ Opnieuw analyseren</button>
