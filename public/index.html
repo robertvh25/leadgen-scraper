@@ -95,7 +95,10 @@
             </div>
           </div>
 
-          <h2>Top kansen vandaag</h2>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 14px;gap:12px;flex-wrap:wrap">
+            <h2 style="margin:0">Top kansen vandaag</h2>
+            <button class="primary" onclick="openNewLeadModal()" style="white-space:nowrap">+ Nieuwe lead</button>
+          </div>
           <div class="leads-grid" id="topLeadsGrid">
             <div class="empty"><h3>Nog geen nieuwe leads vandaag</h3><p>Auto-pilot vult deze lijst gedurende de dag</p></div>
           </div>

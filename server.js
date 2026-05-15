@@ -176,6 +176,84 @@ app.post('/api/webhook/website-form', (req, res) => {
   }
 });
 
+// === MANUAL LEAD CREATE ===
+// Twee gebruiks-flows:
+//   1. Briefing-app push (server-to-server): bearer-token = BRIEFING_API_TOKEN
+//   2. Leadgen-UI "+ Nieuwe lead" (browser): session-cookie via auth.validateSession
+//
+// Idempotent: match op briefing_slug óf email; bestaande lead krijgt update +
+// notes-append i.p.v. duplicate.
+//
+// Body (form-encoded of JSON):
+//   name (required), email, phone, website, address, branch_name, city_name,
+//   briefing_slug, source (default 'manual'), stage (default 'engaged'),
+//   notes (single line)
+app.post('/api/leads/manual', (req, res) => {
+  // Auth-check: bearer-token of session
+  const bearerExp = process.env.BRIEFING_API_TOKEN;
+  const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
+    || (req.body && req.body.token) || '';
+  let authorized = false;
+  let authSource = 'unknown';
+
+  if (bearerExp && bearer && bearer === bearerExp) {
+    authorized = true;
+    authSource = 'bearer';
+  } else {
+    // Try session-cookie (zelfde flow als requireAuthAPI)
+    const session = req.cookies && auth.validateSession ? auth.validateSession(req.cookies.session) : null;
+    if (session || (auth.isAuthEnabled && !auth.isAuthEnabled())) {
+      authorized = true;
+      authSource = session ? `session:${session.username}` : 'auth-disabled';
+    }
+  }
+  if (!authorized) {
+    return res.status(401).json({ error: 'niet ingelogd of geldig token' });
+  }
+
+  const validStages = ['new','contacted','engaged','mockup_creating','mockup_sent','meeting_planned','offerte','project','lost'];
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const phone = String(req.body?.phone || '').trim();
+  const website = String(req.body?.website || '').trim();
+  const address = String(req.body?.address || '').trim();
+  const branch_name = String(req.body?.branch_name || req.body?.branche || '').trim();
+  const city_name = String(req.body?.city_name || req.body?.stad || '').trim();
+  const briefing_slug = String(req.body?.briefing_slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  let stage = String(req.body?.stage || 'engaged').trim();
+  if (!validStages.includes(stage)) stage = 'engaged';
+  const source = String(req.body?.source || 'manual').trim();
+  const notes = String(req.body?.notes || '').trim();
+
+  if (!name) {
+    return res.status(400).json({ error: 'name is verplicht' });
+  }
+
+  try {
+    const result = db.upsertManualLead({
+      name, email, phone, website, address, branch_name, city_name,
+      briefing_slug, source, stage, notes,
+    });
+    // Log inbound-communication als notes meegegeven werd
+    if (notes) {
+      db.logCommunication({
+        lead_id: result.id,
+        type: 'manual-create',
+        direction: 'inbound',
+        subject: `📝 Lead handmatig aangemaakt`,
+        body: `Bron: ${source}\n${briefing_slug ? `Briefing: ${briefing_slug}\n` : ''}\n${notes}`,
+        recipient: email || '',
+        status: 'received',
+      });
+    }
+    console.log(`📝 Manual lead ${result.action} (${authSource}): ${name} → #${result.id} stage=${stage} source=${source}${briefing_slug ? ` slug=${briefing_slug}` : ''}`);
+    res.json({ ok: true, lead_id: result.id, action: result.action, stage });
+  } catch (err) {
+    console.error('manual-lead error:', err);
+    res.status(500).json({ error: 'internal error', detail: err.message });
+  }
+});
+
 // === BRIEFING → LEADGEN STATUS-SYNC WEBHOOK ===
 // Briefing-app post een status-wijziging hier naartoe (via update_client_status).
 // Auth: BRIEFING_API_TOKEN bearer.

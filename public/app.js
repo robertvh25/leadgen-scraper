@@ -1627,6 +1627,97 @@ async function loadUser() {
   }
 }
 
+// === NIEUWE LEAD-MODAL (handmatige creatie) ===
+window.openNewLeadModal = () => {
+  const modal = document.getElementById('templateModal');
+  const content = document.getElementById('templateModalContent');
+  const stageOptions = STAGES.filter(s => s.id !== 'lost')
+    .map(s => `<option value="${s.id}"${s.id === 'engaged' ? ' selected' : ''}>${escapeHtml(s.label)}</option>`)
+    .join('');
+  content.innerHTML = `
+    <h2>Nieuwe lead toevoegen</h2>
+    <p style="color:var(--text-dim);margin-bottom:18px;">Vul minimaal de bedrijfsnaam in — de rest is optioneel maar helpt bij opvolging.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div style="grid-column:1 / -1;">
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Bedrijfsnaam *</label>
+        <input type="text" id="nlName" placeholder="Bv. Bakkerij de Brabander" style="width:100%;" required>
+      </div>
+      <div>
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">E-mailadres</label>
+        <input type="email" id="nlEmail" placeholder="naam@bedrijf.nl" style="width:100%;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Telefoon</label>
+        <input type="tel" id="nlPhone" placeholder="06 / vast" style="width:100%;">
+      </div>
+      <div style="grid-column:1 / -1;">
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Website (huidige)</label>
+        <input type="url" id="nlWebsite" placeholder="https://www.bedrijf.nl" style="width:100%;">
+      </div>
+      <div style="grid-column:1 / -1;">
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Adres</label>
+        <input type="text" id="nlAddress" placeholder="Straat + nr, postcode, plaats" style="width:100%;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Branche</label>
+        <input type="text" id="nlBranch" placeholder="Bv. autobedrijf, restaurant" style="width:100%;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Stad</label>
+        <input type="text" id="nlCity" placeholder="Bv. Eindhoven" style="width:100%;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Startstage</label>
+        <select id="nlStage" style="width:100%;">${stageOptions}</select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Bron</label>
+        <input type="text" id="nlSource" value="manual" placeholder="bv. inbound-call, networking" style="width:100%;">
+      </div>
+      <div style="grid-column:1 / -1;">
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Notitie (optioneel)</label>
+        <textarea id="nlNotes" rows="2" placeholder="Bv: 'Belde over snoepautomaat voor kantoor, 25 medewerkers'" style="width:100%;"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top:18px;">
+      <button class="ghost" onclick="closeModal('templateModal')">Annuleren</button>
+      <button class="primary" onclick="submitNewLead()">Lead opslaan</button>
+    </div>
+  `;
+  modal.classList.add('active');
+  setTimeout(() => { content.querySelector('#nlName')?.focus(); }, 50);
+};
+
+window.submitNewLead = async () => {
+  const $ = (id) => document.getElementById(id);
+  const name = ($('nlName').value || '').trim();
+  if (!name) { toast('Bedrijfsnaam is verplicht', 'error'); $('nlName').focus(); return; }
+  const body = {
+    name,
+    email:       ($('nlEmail').value   || '').trim(),
+    phone:       ($('nlPhone').value   || '').trim(),
+    website:     ($('nlWebsite').value || '').trim(),
+    address:     ($('nlAddress').value || '').trim(),
+    branch_name: ($('nlBranch').value  || '').trim(),
+    city_name:   ($('nlCity').value    || '').trim(),
+    stage:       $('nlStage').value,
+    source:      ($('nlSource').value  || 'manual').trim(),
+    notes:       ($('nlNotes').value   || '').trim(),
+  };
+  try {
+    const r = await api('/api/leads/manual', { method: 'POST', body });
+    closeModal('templateModal');
+    toast(`✓ Lead ${r.action === 'updated' ? 'bijgewerkt' : 'aangemaakt'}: ${name} (#${r.lead_id})`, 'success', 3500);
+    loadDashboard();
+    if (state.view === 'leads') loadLeads();
+    if (state.view === 'funnel') loadFunnel();
+    // Open de lead direct
+    if (window.openLeadDetail) setTimeout(() => openLeadDetail(r.lead_id), 600);
+  } catch (e) {
+    toast('Fout: ' + e.message, 'error', 4000);
+  }
+};
+
 window.logout = async () => {
   if (!confirm('Uitloggen?')) return;
   try {

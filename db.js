@@ -376,6 +376,10 @@ const stmts = {
   // Website-form leads landen DIRECT in 'mockup_creating' — klant heeft expliciet om een
   // mockup gevraagd via 't formulier, dus voorbij de 'in gesprek'-fase.
   insertWebsiteLead: db.prepare(`INSERT INTO leads (name, phone, website, emails, stage, source, notes, contacted) VALUES (?, ?, ?, ?, 'mockup_creating', ?, ?, 1)`),
+  // Handmatige lead (vanuit leadgen-UI '+ Nieuwe lead' of vanuit briefing-app 'Push naar leadgen')
+  insertManualLead: db.prepare(`INSERT INTO leads (name, address, phone, website, emails, branch_name, city_name, stage, source, notes, briefing_slug, contacted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`),
+  updateManualLead: db.prepare(`UPDATE leads SET name = COALESCE(NULLIF(?, ''), name), phone = COALESCE(NULLIF(?, ''), phone), website = COALESCE(NULLIF(?, ''), website), address = COALESCE(NULLIF(?, ''), address), branch_name = COALESCE(NULLIF(?, ''), branch_name), city_name = COALESCE(NULLIF(?, ''), city_name), notes = COALESCE(notes, '') || ? || char(10), briefing_slug = COALESCE(briefing_slug, ?), source = COALESCE(source, ?) WHERE id = ?`),
+  findLeadByBriefingSlug: db.prepare(`SELECT * FROM leads WHERE briefing_slug = ? ORDER BY created_at DESC LIMIT 1`),
   findLeadByEmailExact: db.prepare(`SELECT * FROM leads WHERE LOWER(json_extract(emails, '$[0]')) = LOWER(?) OR LOWER(emails) LIKE '%"' || LOWER(?) || '"%' ORDER BY created_at DESC LIMIT 1`),
   // Existing lead die opnieuw via form aanvraagt: advance naar 'mockup_creating' (max), respecteer hogere stages.
   updateLeadFromWebsiteForm: db.prepare(`UPDATE leads SET phone = COALESCE(NULLIF(?, ''), phone), website = COALESCE(NULLIF(?, ''), website), notes = COALESCE(notes, '') || ? || char(10), source = COALESCE(source, ?), stage = CASE WHEN stage IN ('new', 'contacted', 'engaged', 'lost') THEN 'mockup_creating' ELSE stage END, contacted = 1 WHERE id = ?`),
@@ -617,6 +621,52 @@ module.exports = {
     const e = (email || '').toLowerCase();
     if (!e) return null;
     return stmts.findLeadByEmailExact.get(e, e);
+  },
+  findLeadByBriefingSlug: (slug) => {
+    if (!slug) return null;
+    return stmts.findLeadByBriefingSlug.get(slug);
+  },
+  /**
+   * Idempotente lead-create: insert of update op match-by-(briefing_slug || email).
+   * Bedoeld voor handmatige aanmaak uit leadgen-UI of push uit briefing-app.
+   * Returns: { id, action: 'created'|'updated' }
+   */
+  upsertManualLead: ({ name, email, phone, website, address, branch_name, city_name, briefing_slug, source = 'manual', stage = 'engaged', notes = '' }) => {
+    // Match op briefing_slug eerst (sterkste signal), dan email
+    let existing = null;
+    if (briefing_slug) { existing = stmts.findLeadByBriefingSlug.get(briefing_slug); }
+    if (!existing && email) {
+      const e = email.toLowerCase();
+      existing = stmts.findLeadByEmailExact.get(e, e);
+    }
+    const noteLine = notes
+      ? `[${new Date().toISOString().slice(0,16).replace('T',' ')}] ${notes}`
+      : '';
+    const emailJson = email ? JSON.stringify([email.toLowerCase()]) : '[]';
+
+    if (existing) {
+      stmts.updateManualLead.run(
+        name || '', phone || '', website || '', address || '',
+        branch_name || '', city_name || '',
+        noteLine, briefing_slug || null, source, existing.id
+      );
+      // Stage-advance via advanceLeadStage (respecteert no-backwards)
+      if (stage) {
+        const STAGE_ORDER_LOCAL = { new:0, contacted:1, engaged:2, mockup_creating:3, mockup_sent:4, meeting_planned:5, offerte:6, project:7 };
+        const cur = STAGE_ORDER_LOCAL[existing.stage || 'new'] ?? 0;
+        const tgt = STAGE_ORDER_LOCAL[stage] ?? -1;
+        if (tgt > cur && existing.stage !== 'lost') {
+          stmts.updateLeadStage.run(stage, stage, existing.id);
+        }
+      }
+      return { id: existing.id, action: 'updated' };
+    }
+    const r = stmts.insertManualLead.run(
+      name, address || null, phone || null, website || null,
+      emailJson, branch_name || null, city_name || null,
+      stage, source, noteLine, briefing_slug || null
+    );
+    return { id: r.lastInsertRowid, action: 'created' };
   },
   /**
    * Voeg een lead toe vanuit website-form (aitomade.nl). Direct in stage='mockup_creating' —
