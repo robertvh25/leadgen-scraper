@@ -436,6 +436,18 @@ $('#exportBtn').addEventListener('click', () => {
   window.location = `/api/export.csv?${params}`;
 });
 
+// Outreach-CSV — telefoon-opvolging door externe collega
+function exportOutreach() {
+  if (!confirm('Outreach-CSV genereren?\n\nFilter: leads in stage \'benaderd\' OR \'nieuw met score >1\'.\nIncl. leads zonder email + alle analyse-info (issues, visual-score, screenshot-URL).\n\nDoorgaan?')) return;
+  const params = new URLSearchParams();
+  params.set('preset', 'outreach');
+  if (state.filterBranch) params.set('branch', state.filterBranch);
+  if (state.filterCity) params.set('city', state.filterCity);
+  window.location = `/api/export.csv?${params}`;
+}
+$('#exportOutreachBtn')?.addEventListener('click', exportOutreach);
+$('#exportOutreachBtnAll')?.addEventListener('click', exportOutreach);
+
 // === ALL LEADS (echt alle leads, ongeacht stage/email/dismissed) ===
 async function loadAllLeads() {
   const params = new URLSearchParams();

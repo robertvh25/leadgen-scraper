@@ -1587,18 +1587,78 @@ app.delete('/api/searches/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// === HELPER: signed public-screenshot URL ===
+// Voor CSV-export naar externe systemen (bv. outreach door collega). HMAC-SHA256
+// hash van filename met BRIEFING_API_TOKEN als secret. Endpoint hieronder
+// valideert + servt het bestand zonder login.
+function signScreenshotFilename(filename) {
+  const secret = process.env.BRIEFING_API_TOKEN || process.env.ADMIN_PASSWORD || 'fallback';
+  return require('crypto').createHmac('sha256', secret).update(filename).digest('hex').slice(0, 16);
+}
+
+// === PUBLIC SCREENSHOT (signed, no login) ===
+// GET /s/:filename?sig=<hash> — serveert screenshot als sig klopt
+app.get('/s/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename || '');
+  if (!filename || /[^a-zA-Z0-9._-]/.test(filename)) return res.status(400).send('invalid filename');
+  const expected = signScreenshotFilename(filename);
+  if (req.query.sig !== expected) return res.status(403).send('invalid signature');
+  const filePath = path.join(getScreenshotDir(), filename);
+  if (!require('fs').existsSync(filePath)) return res.status(404).send('not found');
+  res.sendFile(filePath);
+});
+
 // === EXPORT ===
 app.get('/api/export.csv', (req, res) => {
-  const filters = {
-    minScore: req.query.minScore ? parseInt(req.query.minScore) : null,
-    contacted: req.query.contacted !== undefined ? (req.query.contacted === 'true' ? 1 : 0) : null,
-    branch: req.query.branch || null,
-    city: req.query.city || null,
-    stage: req.query.stage || null,
-    limit: 10000,
-  };
-  const leads = db.getAllLeads(filters);
-  const headers = ['id', 'name', 'address', 'phone', 'website', 'emails', 'rating', 'review_count', 'replacement_score', 'has_https', 'is_mobile_friendly', 'cms_type', 'pagespeed_score', 'copyright_year', 'branch_name', 'city_name', 'stage', 'issues', 'contacted', 'created_at'];
+  const preset = String(req.query.preset || '').toLowerCase();
+  const branch = req.query.branch || null;
+  const city = req.query.city || null;
+  const limit = 10000;
+
+  let leads;
+  if (preset === 'outreach') {
+    // Outreach-filter: leads die telefonisch opgevolgd kunnen worden
+    //   - stage = 'contacted' (al benaderd via mail, mogelijk doorbellen)
+    //   - OF stage = 'new' met score > 1 (nog niet benaderd, maar potentie)
+    //   - Inclusief leads zonder email (gewoon mobiel/vast bellen)
+    //   - Exclusief dismissed
+    const sql = `
+      SELECT * FROM leads
+      WHERE (dismissed IS NULL OR dismissed = 0)
+        AND (
+          stage = 'contacted'
+          OR (stage = 'new' AND replacement_score IS NOT NULL AND replacement_score > 1)
+        )
+        AND (? IS NULL OR branch_name = ?)
+        AND (? IS NULL OR city_name = ?)
+      ORDER BY replacement_score DESC NULLS LAST, created_at DESC
+      LIMIT ?
+    `;
+    leads = db.db.prepare(sql).all(branch, branch, city, city, limit);
+  } else {
+    leads = db.getAllLeads({
+      minScore: req.query.minScore ? parseInt(req.query.minScore) : null,
+      contacted: req.query.contacted !== undefined ? (req.query.contacted === 'true' ? 1 : 0) : null,
+      branch, city,
+      stage: req.query.stage || null,
+      limit,
+    });
+  }
+
+  // Build base URL for public screenshot links
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'leads.aitomade.nl';
+  const baseUrl = `${proto}://${host}`;
+
+  const headers = [
+    'id', 'name', 'address', 'phone', 'website', 'emails',
+    'rating', 'review_count', 'replacement_score',
+    'has_https', 'is_mobile_friendly', 'cms_type', 'pagespeed_score',
+    'copyright_year', 'branch_name', 'city_name', 'stage',
+    'issues', 'visual_issues', 'visual_design_score',
+    'notes', 'loss_reason', 'screenshot_url',
+    'briefing_slug', 'source', 'contacted', 'created_at',
+  ];
   const escape = (v) => {
     if (v === null || v === undefined) return '';
     const s = String(v).replace(/"/g, '""');
@@ -1606,17 +1666,27 @@ app.get('/api/export.csv', (req, res) => {
   };
   const rows = [headers.join(',')];
   for (const lead of leads) {
-    let issues = '', emails = '';
-    try { issues = (JSON.parse(lead.issues || '[]')).join(' | '); } catch {}
-    try { emails = (JSON.parse(lead.emails || '[]')).join(', '); } catch {}
+    let issuesStr = '', visualIssuesStr = '', emailsStr = '';
+    try { issuesStr = (JSON.parse(lead.issues || '[]')).join(' | '); } catch {}
+    try { visualIssuesStr = (JSON.parse(lead.visual_issues || '[]')).join(' | '); } catch {}
+    try { emailsStr = (JSON.parse(lead.emails || '[]')).join(', '); } catch {}
+    let screenshotUrl = '';
+    if (lead.screenshot_path) {
+      const fname = path.basename(lead.screenshot_path);
+      const sig = signScreenshotFilename(fname);
+      screenshotUrl = `${baseUrl}/s/${encodeURIComponent(fname)}?sig=${sig}`;
+    }
     rows.push(headers.map(h => {
-      if (h === 'issues') return escape(issues);
-      if (h === 'emails') return escape(emails);
+      if (h === 'issues') return escape(issuesStr);
+      if (h === 'visual_issues') return escape(visualIssuesStr);
+      if (h === 'emails') return escape(emailsStr);
+      if (h === 'screenshot_url') return escape(screenshotUrl);
       return escape(lead[h]);
     }).join(','));
   }
+  const filenameTag = preset === 'outreach' ? 'outreach' : 'leads';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="leads-${Date.now()}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${filenameTag}-${new Date().toISOString().slice(0,10)}.csv"`);
   res.send(rows.join('\n'));
 });
 
