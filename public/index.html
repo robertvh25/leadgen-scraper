@@ -60,16 +60,21 @@
         <button type="button" class="tab-btn nav-item" data-view="pending" data-target="pending">📬 Inbox <span class="tab-count tab-count--alert" id="navPendingCount">0</span></button>
         <button type="button" class="tab-btn nav-item" data-view="bookings" data-target="bookings">📅 Boekingen <span class="tab-count" id="navBookingsCount">0</span></button>
         <button type="button" class="tab-btn nav-item" data-view="projects" data-target="projects">📁 Projecten</button>
-        <button type="button" class="tab-btn nav-item" data-view="activity" data-target="activity">📜 Activiteit</button>
-        <span style="width:1px;height:24px;background:var(--line);margin:0 4px;"></span>
-        <button type="button" class="tab-btn nav-item" data-view="branches" data-target="branches">🏗️ Branches</button>
-        <button type="button" class="tab-btn nav-item" data-view="cities" data-target="cities">🌍 Steden</button>
-        <button type="button" class="tab-btn nav-item" data-view="templates" data-target="templates">📝 Templates</button>
-        <button type="button" class="tab-btn nav-item" data-view="sequences" data-target="sequences">⚡ Sequences</button>
-        <button type="button" class="tab-btn nav-item" data-view="settings" data-target="settings">⚙️ Instellingen</button>
+        <span style="flex:1"></span>
+        <button type="button" class="tab-btn nav-item" data-view="settings" data-target="settings" data-settings-parent="1">⚙️ Instellingen</button>
       </nav>
 
       <div class="content">
+        <!-- SETTINGS SUB-NAV (zichtbaar alleen wanneer een settings-view actief is) -->
+        <nav id="settingsSubnav" class="settings-subnav" style="display:none" aria-label="Instellingen-submenu">
+          <button type="button" class="settings-sub-btn" data-view="settings">⚙️ Algemeen</button>
+          <button type="button" class="settings-sub-btn" data-view="branches">🏗️ Branches</button>
+          <button type="button" class="settings-sub-btn" data-view="cities">🌍 Steden</button>
+          <button type="button" class="settings-sub-btn" data-view="templates">📝 Templates</button>
+          <button type="button" class="settings-sub-btn" data-view="sequences">⚡ Sequences</button>
+          <button type="button" class="settings-sub-btn" data-view="activity">📜 Activiteit</button>
+        </nav>
+
         <!-- DASHBOARD -->
         <div class="view active" id="view-dashboard">
           <div class="stats">

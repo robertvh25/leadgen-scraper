@@ -1212,3 +1212,33 @@ label.field {
 }
 
 .hide { display: none !important; }
+
+/* Settings sub-nav — verschijnt boven de content wanneer een settings-view actief is */
+.settings-subnav {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.settings-sub-btn {
+  background: transparent;
+  border: none;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dim, #4b5563);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.settings-sub-btn:hover { background: var(--bg-hover); color: var(--primary); }
+.settings-sub-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+.settings-sub-btn.active:hover { background: var(--primary-soft); color: #fff; }

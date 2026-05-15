@@ -91,18 +91,39 @@ function scoreClass(score) {
 $$('.nav-item').forEach(item => {
   item.addEventListener('click', () => {
     if (!item.dataset.view) return;
+    // 'Instellingen' top-knop: open de Algemeen-tab in subnav
     switchView(item.dataset.view);
   });
 });
+// Settings sub-nav click handlers
+$$('.settings-sub-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!btn.dataset.view) return;
+    switchView(btn.dataset.view);
+  });
+});
+
+const SETTINGS_VIEWS = ['settings', 'branches', 'cities', 'templates', 'sequences', 'activity'];
 
 function switchView(view, data = {}) {
   state.view = view;
+  const isSettings = SETTINGS_VIEWS.includes(view);
   $$('.nav-item').forEach(i => {
-    const isActive = i.dataset.view === view;
+    // 'Instellingen'-knop blijft active wanneer je in een sub-settings-view zit
+    const isActive = i.dataset.view === view || (isSettings && i.dataset.settingsParent === '1');
     i.classList.toggle('active', isActive);
     if (i.tagName === 'BUTTON') i.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
   $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
+
+  // Toon/verberg settings-subnav en markeer actieve sub-tab
+  const subnav = document.getElementById('settingsSubnav');
+  if (subnav) {
+    subnav.style.display = isSettings ? 'flex' : 'none';
+    subnav.querySelectorAll('.settings-sub-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.view === view);
+    });
+  }
 
   const titles = {
     dashboard: 'Dashboard',
