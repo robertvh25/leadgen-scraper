@@ -162,6 +162,8 @@ addColumnIfMissing('leads', 'loss_reason', 'TEXT');
 addColumnIfMissing('leads', 'lost_at', 'DATETIME');
 addColumnIfMissing('leads', 'visual_design_score', 'INTEGER');
 addColumnIfMissing('leads', 'visual_issues', 'TEXT');
+// v4.6x: source-veld om herkomst bij te houden (scraper/website-form/etc)
+addColumnIfMissing('leads', 'source', `TEXT DEFAULT 'scraper'`);
 // Bestaande outbound communications hoeven niet "ongelezen" te staan
 try { db.exec(`UPDATE communications SET read = 1 WHERE direction = 'outbound' AND (read = 0 OR read IS NULL)`); } catch {}
 
@@ -370,6 +372,10 @@ const stmts = {
   createSearch: db.prepare(`INSERT INTO searches (query, location, auto) VALUES (?, ?, ?)`),
   updateSearchStatus: db.prepare(`UPDATE searches SET status = ?, total_results = ? WHERE id = ?`),
   insertLead: db.prepare(`INSERT OR IGNORE INTO leads (search_id, name, address, phone, website, google_maps_url, rating, review_count, category, branch_name, city_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  // Lead via website-form (aitomade.nl) — geen scraper-data, wel direct contact-aanvraag
+  insertWebsiteLead: db.prepare(`INSERT INTO leads (name, phone, website, emails, stage, source, notes, contacted) VALUES (?, ?, ?, ?, 'engaged', ?, ?, 1)`),
+  findLeadByEmailExact: db.prepare(`SELECT * FROM leads WHERE LOWER(json_extract(emails, '$[0]')) = LOWER(?) OR LOWER(emails) LIKE '%"' || LOWER(?) || '"%' ORDER BY created_at DESC LIMIT 1`),
+  updateLeadFromWebsiteForm: db.prepare(`UPDATE leads SET phone = COALESCE(NULLIF(?, ''), phone), website = COALESCE(NULLIF(?, ''), website), notes = COALESCE(notes, '') || ? || char(10), source = COALESCE(source, ?), stage = CASE WHEN stage IN ('new', 'contacted', 'lost') THEN 'engaged' ELSE stage END, contacted = 1 WHERE id = ?`),
   updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ?, visual_design_score = ?, visual_issues = ? WHERE id = ?`),
   updateLeadScreenshot: db.prepare(`UPDATE leads SET screenshot_path = ? WHERE id = ?`),
   updateLeadVisualDesign: db.prepare(`UPDATE leads SET visual_design_score = ?, visual_issues = ?, replacement_score = ? WHERE id = ?`),
@@ -604,6 +610,27 @@ module.exports = {
   updatePendingActionBody: (id, subject, body) => stmts.updatePendingActionBody.run(subject, body, id),
   countPendingActions: () => stmts.countPendingActions.get().c,
   findLeadByEmail: (email) => stmts.findLeadByEmail.get(email.toLowerCase()),
+  findLeadByEmailExact: (email) => {
+    const e = (email || '').toLowerCase();
+    if (!e) return null;
+    return stmts.findLeadByEmailExact.get(e, e);
+  },
+  /**
+   * Voeg een lead toe vanuit website-form (aitomade.nl). Direct in stage='engaged'.
+   * Bestaande lead met zelfde e-mail krijgt update + notes-append i.p.v. duplicate.
+   * Returns: { id, action: 'created'|'updated' }
+   */
+  addWebsiteLead: ({ name, email, phone, website, source = 'aitomade-form', noteLine = '' }) => {
+    const existing = stmts.findLeadByEmailExact.get((email || '').toLowerCase(), (email || '').toLowerCase());
+    const emailJson = email ? JSON.stringify([email.toLowerCase()]) : '[]';
+    const noteWithTimestamp = noteLine ? `[${new Date().toISOString().slice(0,16).replace('T',' ')}] ${noteLine}` : '';
+    if (existing) {
+      stmts.updateLeadFromWebsiteForm.run(phone || '', website || '', noteWithTimestamp, source, existing.id);
+      return { id: existing.id, action: 'updated' };
+    }
+    const r = stmts.insertWebsiteLead.run(name, phone || null, website || null, emailJson, source, noteWithTimestamp);
+    return { id: r.lastInsertRowid, action: 'created' };
+  },
   // Communications
   logCommunication: (c) => {
     const dir = c.direction || 'outbound';

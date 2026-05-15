@@ -120,6 +120,60 @@ app.post('/api/webhook/calcom', (req, res) => {
   res.json({ ok: true });
 });
 
+// === WEBSITE-FORM WEBHOOK (PUBLIC, bearer-token-verified) ===
+// Inbound leads vanuit aitomade.nl hero-formulier (en eventueel andere bureau-sites).
+// Bearer-token = BRIEFING_API_TOKEN (zelfde token als die de briefing-app gebruikt voor
+// inkomende sync vanuit deze app — bidirectioneel hergebruikt).
+//
+// Body (form-encoded of JSON):
+//   token         — bearer-auth, verplicht
+//   name          — bedrijfsnaam, verplicht
+//   email         — verplicht
+//   phone         — optioneel
+//   website       — huidige website-URL, optioneel
+//   source        — herkomst-label, default 'aitomade-form'
+//   note          — opmerking voor in notes, default 'Mockup aangevraagd via website'
+app.post('/api/webhook/website-form', (req, res) => {
+  const expected = process.env.BRIEFING_API_TOKEN;
+  if (!expected) {
+    console.warn('Website-form webhook: BRIEFING_API_TOKEN niet gezet, weiger payload');
+    return res.status(503).json({ error: 'webhook not configured' });
+  }
+  const token = req.body?.token || (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  if (token !== expected) {
+    return res.status(403).json({ error: 'invalid token' });
+  }
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const phone = String(req.body?.phone || '').trim();
+  const website = String(req.body?.website || '').trim();
+  const source = String(req.body?.source || 'aitomade-form').trim();
+  const note = String(req.body?.note || 'Mockup aangevraagd via website').trim();
+
+  if (!name || !email) {
+    return res.status(400).json({ error: 'name en email zijn verplicht' });
+  }
+
+  try {
+    const result = db.addWebsiteLead({ name, email, phone, website, source, noteLine: note });
+    // Log een inbound-communication zodat 't in de lead-tijdlijn verschijnt
+    db.logCommunication({
+      lead_id: result.id,
+      type: 'website-form',
+      direction: 'inbound',
+      subject: `📩 ${note}`,
+      body: `Naam: ${name}\nEmail: ${email}\nTelefoon: ${phone || '(niet opgegeven)'}\nHuidige website: ${website || '(niet opgegeven)'}\n\nBron: ${source}`,
+      recipient: email,
+      status: 'received',
+    });
+    console.log(`📩 Website-form lead ${result.action}: ${name} <${email}> → #${result.id} (source=${source})`);
+    res.json({ ok: true, lead_id: result.id, action: result.action, stage: 'engaged' });
+  } catch (err) {
+    console.error('Website-form webhook error:', err);
+    res.status(500).json({ error: 'internal error', detail: err.message });
+  }
+});
+
 // === AUTH ENDPOINTS ===
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
