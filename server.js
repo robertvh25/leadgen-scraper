@@ -20,6 +20,7 @@ const imapWatcher = require('./lib/imap-watcher');
 const autoSend = require('./lib/auto-send');
 const briefingClient = require('./lib/briefing-client');
 const leadSync = require('./lib/lead-sync');
+const briefingSync = require('./lib/briefing-sync');
 const sendWindow = require('./lib/send-window');
 
 const app = express();
@@ -171,6 +172,38 @@ app.post('/api/webhook/website-form', (req, res) => {
     res.json({ ok: true, lead_id: result.id, action: result.action, stage: 'engaged' });
   } catch (err) {
     console.error('Website-form webhook error:', err);
+    res.status(500).json({ error: 'internal error', detail: err.message });
+  }
+});
+
+// === BRIEFING → LEADGEN STATUS-SYNC WEBHOOK ===
+// Briefing-app post een status-wijziging hier naartoe (via update_client_status).
+// Auth: BRIEFING_API_TOKEN bearer.
+// Body: token, briefing_slug, briefing_status, source (optioneel)
+app.post('/api/webhook/briefing-status', (req, res) => {
+  const expected = process.env.BRIEFING_API_TOKEN;
+  if (!expected) {
+    return res.status(503).json({ error: 'webhook not configured' });
+  }
+  const token = req.body?.token || (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  if (token !== expected) {
+    return res.status(403).json({ error: 'invalid token' });
+  }
+  const slug = String(req.body?.briefing_slug || req.body?.ref || '').trim().toLowerCase();
+  const briefingStatus = String(req.body?.briefing_status || req.body?.status || '').trim().toLowerCase();
+  if (!slug || !briefingStatus) {
+    return res.status(400).json({ error: 'briefing_slug en briefing_status zijn vereist' });
+  }
+  try {
+    const result = briefingSync.applyBriefingStatusToLead(slug, briefingStatus);
+    if (result.ok && result.newStage) {
+      console.log(`📥 briefing-sync: ${slug}:${briefingStatus} → lead#${result.leadId} stage ${result.oldStage} → ${result.newStage}`);
+    } else if (result.skipped) {
+      console.log(`📥 briefing-sync: ${slug}:${briefingStatus} skipped (${result.skipped})`);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('briefing-status webhook error:', err);
     res.status(500).json({ error: 'internal error', detail: err.message });
   }
 });
@@ -342,6 +375,11 @@ app.patch('/api/leads/:id', async (req, res) => {
     // Handmatig terug-/inzetten naar 'contacted' → trigger eerste outreach-mail
     if (newStage === 'contacted' && stageChanged) {
       triggered = await triggerFirstOutreach(id);
+    }
+    // Sync naar briefing-app (skip als update zelf van briefing-sync kwam)
+    if (stageChanged) {
+      const syncSource = (req.body && typeof req.body.sync_source === 'string') ? req.body.sync_source : 'leadgen-ui';
+      briefingSync.pushStageToBriefing(id, newStage, syncSource).catch(() => {});
     }
   }
   res.json({ ok: true, mail: triggered });
