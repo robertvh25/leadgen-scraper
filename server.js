@@ -169,7 +169,7 @@ app.post('/api/webhook/website-form', (req, res) => {
       status: 'received',
     });
     console.log(`📩 Website-form lead ${result.action}: ${name} <${email}> → #${result.id} (source=${source})`);
-    res.json({ ok: true, lead_id: result.id, action: result.action, stage: 'engaged' });
+    res.json({ ok: true, lead_id: result.id, action: result.action, stage: 'mockup_creating' });
   } catch (err) {
     console.error('Website-form webhook error:', err);
     res.status(500).json({ error: 'internal error', detail: err.message });

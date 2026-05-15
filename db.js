@@ -373,9 +373,12 @@ const stmts = {
   updateSearchStatus: db.prepare(`UPDATE searches SET status = ?, total_results = ? WHERE id = ?`),
   insertLead: db.prepare(`INSERT OR IGNORE INTO leads (search_id, name, address, phone, website, google_maps_url, rating, review_count, category, branch_name, city_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
   // Lead via website-form (aitomade.nl) — geen scraper-data, wel direct contact-aanvraag
-  insertWebsiteLead: db.prepare(`INSERT INTO leads (name, phone, website, emails, stage, source, notes, contacted) VALUES (?, ?, ?, ?, 'engaged', ?, ?, 1)`),
+  // Website-form leads landen DIRECT in 'mockup_creating' — klant heeft expliciet om een
+  // mockup gevraagd via 't formulier, dus voorbij de 'in gesprek'-fase.
+  insertWebsiteLead: db.prepare(`INSERT INTO leads (name, phone, website, emails, stage, source, notes, contacted) VALUES (?, ?, ?, ?, 'mockup_creating', ?, ?, 1)`),
   findLeadByEmailExact: db.prepare(`SELECT * FROM leads WHERE LOWER(json_extract(emails, '$[0]')) = LOWER(?) OR LOWER(emails) LIKE '%"' || LOWER(?) || '"%' ORDER BY created_at DESC LIMIT 1`),
-  updateLeadFromWebsiteForm: db.prepare(`UPDATE leads SET phone = COALESCE(NULLIF(?, ''), phone), website = COALESCE(NULLIF(?, ''), website), notes = COALESCE(notes, '') || ? || char(10), source = COALESCE(source, ?), stage = CASE WHEN stage IN ('new', 'contacted', 'lost') THEN 'engaged' ELSE stage END, contacted = 1 WHERE id = ?`),
+  // Existing lead die opnieuw via form aanvraagt: advance naar 'mockup_creating' (max), respecteer hogere stages.
+  updateLeadFromWebsiteForm: db.prepare(`UPDATE leads SET phone = COALESCE(NULLIF(?, ''), phone), website = COALESCE(NULLIF(?, ''), website), notes = COALESCE(notes, '') || ? || char(10), source = COALESCE(source, ?), stage = CASE WHEN stage IN ('new', 'contacted', 'engaged', 'lost') THEN 'mockup_creating' ELSE stage END, contacted = 1 WHERE id = ?`),
   updateLeadAnalysis: db.prepare(`UPDATE leads SET analyzed = 1, replacement_score = ?, issues = ?, has_https = ?, is_mobile_friendly = ?, has_cms = ?, cms_type = ?, has_viewport_meta = ?, has_open_graph = ?, pagespeed_score = ?, copyright_year = ?, last_modified = ?, tech_stack = ?, analysis_error = ?, emails = ?, screenshot_path = ?, visual_design_score = ?, visual_issues = ? WHERE id = ?`),
   updateLeadScreenshot: db.prepare(`UPDATE leads SET screenshot_path = ? WHERE id = ?`),
   updateLeadVisualDesign: db.prepare(`UPDATE leads SET visual_design_score = ?, visual_issues = ?, replacement_score = ? WHERE id = ?`),
@@ -616,8 +619,10 @@ module.exports = {
     return stmts.findLeadByEmailExact.get(e, e);
   },
   /**
-   * Voeg een lead toe vanuit website-form (aitomade.nl). Direct in stage='engaged'.
-   * Bestaande lead met zelfde e-mail krijgt update + notes-append i.p.v. duplicate.
+   * Voeg een lead toe vanuit website-form (aitomade.nl). Direct in stage='mockup_creating' —
+   * klant heeft expliciet om mockup gevraagd, dus voorbij 'in gesprek'-fase.
+   * Bestaande lead met zelfde e-mail krijgt update + notes-append i.p.v. duplicate
+   * (en advance naar mockup_creating als nog onder die stage).
    * Returns: { id, action: 'created'|'updated' }
    */
   addWebsiteLead: ({ name, email, phone, website, source = 'aitomade-form', noteLine = '' }) => {
